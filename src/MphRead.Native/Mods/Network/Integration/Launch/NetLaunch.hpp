@@ -42,6 +42,8 @@ namespace MphRead::Mods::Network
         static const std::string& LastJoinError();
         static void DisableCheatsForMatch();
         static std::optional<NetLaunchServerRoom> ServerRoom();
+        // Set authoritative game rules before any online players initialize.
+        static void ApplyMatchRules();
 
         [[nodiscard]] static Multiplayer::MatchWorldProfile WorldProfile();
         [[nodiscard]] static std::int32_t RoomPlayerCount();

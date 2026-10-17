@@ -355,10 +355,37 @@ namespace MphRead::Mods::Network
         return WorldProfile().EntityLayerPlayers;
     }
 
+    void NetLaunch::ApplyMatchRules()
+    {
+        if (const std::optional<MatchDefinition> match = NetSession::ActiveMatchDefinition())
+        {
+            // Initial online scene construction and same-scene rotation can
+            // both precede NetMatchSync's per-frame update. Player::Initialize
+            // needs these rules now to equip the Imperialist in Instagib.
+            GameState::Instagib(match->Instagib);
+            GameState::FriendlyFire(match->FriendlyFire);
+            GameState::AffinityWeapons(match->AffinityWeapons);
+            GameState::ShadowFreeze(match->ShadowFreeze);
+        }
+        else if (const std::optional<MatchStatePacket> state = NetSession::ServerMatch())
+        {
+            // Continuous servers and older session handshakes may supply
+            // match-state flags before their full session definition arrives.
+            GameState::Instagib(state->Instagib());
+            GameState::FriendlyFire(state->FriendlyFire());
+            GameState::ShadowFreeze(state->ShadowFreeze());
+            if (state->StatesRules())
+            {
+                GameState::AffinityWeapons(state->AffinityWeapons());
+            }
+        }
+    }
+
     void NetLaunch::BuildPlayers(Scene& scene, Hunter localHunter,
         std::int32_t localRecolor, bool teams,
         std::optional<std::int32_t> localSlot)
     {
+        ApplyMatchRules();
         const std::optional<MatchDefinition> match = NetSession::ActiveMatchDefinition();
         GameState::TeamCount(teams && match.has_value() ? LobbyRules::TeamCount(*match) : teams ? 2 : 0);
         std::int32_t resolvedSlot;

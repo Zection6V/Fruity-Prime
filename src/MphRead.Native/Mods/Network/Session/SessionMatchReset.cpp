@@ -35,7 +35,7 @@ namespace MphRead::Mods::Network
         NetMatchSync::Reset();
         NetSlotManager::Reset();
         NetDamage::Reset();
-        NetRoomChange::Reset();
+        NetRoomChange::ResetForMatch();
         NetMatchEnd::Reset();
         NetPlayerBridge::Reset();
         NetUnlagged::Reset();

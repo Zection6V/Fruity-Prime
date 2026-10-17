@@ -75,14 +75,9 @@ namespace MphRead::Mods::Network
             else if (ports.matchEndedAt >= 0
                 && now - ports.matchEndedAt >= ports.matchLifecycle.EndSequenceFor())
             {
-                if (ports.lobby.Policy() == ServerSessionPolicy::Lobby)
-                {
-                    ports.lobbySession.ReturnToLobby();
-                }
-                else
-                {
-                    ports.matchLifecycle.AdvanceMap(now);
-                }
+                // The lobby configures the first match; after the ballot,
+                // all running sessions automatically advance to another round.
+                ports.matchLifecycle.AdvanceMap(now);
             }
 
             if (now - lastStateBroadcast >= 1.0)

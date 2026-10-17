@@ -42,6 +42,7 @@ namespace MphRead::Qt
         // Once per frame, with the game's context current. Renders if dirty
         // and hands the result to UiOverlay.
         void Tick(int framebufferWidth, int framebufferHeight);
+        [[nodiscard]] bool Ready() const noexcept { return _initialised; }
         // The menus could not start on the renderer's Vulkan device.
         [[nodiscard]] bool VulkanFailed() const noexcept { return _failed && _vulkan; }
 

@@ -12,8 +12,11 @@ param(
     [ValidateRange(0,7)][int]$Bots = 7,
     [ValidateRange(0,5000)][int]$BotPingMs = 250,
     [string]$Room = 'MP1 SANCTORUS',
+    [ValidateRange(1,60)][int]$MatchMinutes = 60,
+    [ValidateRange(1,999)][int]$PointGoal = 7,
     [ValidateRange(1024,65535)][int]$Port = 27888,
     [ValidateRange(60,86400)][int]$Seconds = 7200,
+    [switch]$Instagib,
     [switch]$Stop
 )
 $ErrorActionPreference = 'Stop'
@@ -60,7 +63,20 @@ while ($true) {
 $sessionDir = Join-Path $buildDir ('manual-tests\' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $sessionDir -Force | Out-Null
 $rotation = Join-Path $sessionDir 'rotation.txt'
-[System.IO.File]::WriteAllText($rotation, "$Room | Battle | 60 | 999`n", [System.Text.UTF8Encoding]::new($false))
+# Use the same five known-good maps as the dedicated server's default rotation.
+# -Room selects the first map; don't repeat it later in the rotation.
+$defaultRooms = @(
+    'MP1 SANCTORUS'
+    'MP3 PROVING GROUND'
+    'MP4 HIGHGROUND'
+    'MP2 HARVESTER'
+    'MP6 HEADSHOT'
+)
+$rotationRooms = @($Room) + @($defaultRooms | Where-Object {
+    -not [string]::Equals($_, $Room, [System.StringComparison]::OrdinalIgnoreCase)
+})
+$rotationLines = $rotationRooms | ForEach-Object { "$_ | Battle | $MatchMinutes | $PointGoal" }
+[System.IO.File]::WriteAllText($rotation, (($rotationLines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
 $script:sessionProcesses = @()
 
 function Quote-NativeArgument([string]$Value) {
@@ -121,7 +137,9 @@ try {
         }
     }
     $common = @('-homingtrace','-debuglog','-noupdate','-noautoupdate')
-    $server = Start-SessionProcess 'server' (@('-server','-port',"$Port",'-players','8','-rotation',$rotation,'-nomaster','-servername',"ManualBots$BotPingMs") + $common)
+    $serverArgs = @('-server','-port',"$Port",'-players','8','-rotation',$rotation,'-nomaster','-servername',"ManualBots$BotPingMs") + $common
+    if ($Instagib) { $serverArgs += '-instagib' }
+    $server = Start-SessionProcess 'server' $serverArgs
     Wait-Server $server
     $hunters = @('Samus','Spire','Noxus','Trace','Weavel','Sylux','Kanden')
     for ($i=0; $i -lt $Bots; $i++) {
@@ -132,7 +150,9 @@ try {
     $player = Start-SessionProcess 'player' (@('-connect','127.0.0.1','-port',"$Port",'-name','Zection','-hunter',$Hunter) + $common) -Visible
     Wait-Joined $player 'player' 'slot \d+ activated \(Zection\)'
     Write-Output "Ready: $Hunter + $Bots bots (AI level 2, added RTT $BotPingMs ms)."
+    if ($Instagib) { Write-Output "Mode: Instagib (server rule enabled)." }
     Write-Output "Connect: 127.0.0.1:$Port -- $Room"
+    Write-Output "Rotation: $($rotationRooms -join ' -> ') ($MatchMinutes min / $PointGoal points)"
     Write-Output "Logs: $sessionDir"
     Write-Output 'Stop all session processes: tools\test-session\stop.bat'
 } catch {
@@ -141,7 +161,7 @@ try {
 } finally {
     $env:PATH = $savedPath
     $env:FRUITY_DEBUG_LOG_DIRECTORY = $savedLog
-    $state = [pscustomobject]@{SessionDirectory=$sessionDir;Port=$Port;Hunter=$Hunter;Bots=$Bots;BotPingMs=$BotPingMs;Processes=$script:sessionProcesses}
+    $state = [pscustomobject]@{SessionDirectory=$sessionDir;Port=$Port;Hunter=$Hunter;Bots=$Bots;BotPingMs=$BotPingMs;Instagib=$Instagib.IsPresent;Processes=$script:sessionProcesses}
     $state | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $sessionDir 'processes.json') -Encoding utf8
     $state | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $stateFile -Encoding utf8
 }

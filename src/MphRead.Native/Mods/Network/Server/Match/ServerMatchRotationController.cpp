@@ -26,6 +26,7 @@ namespace MphRead::Mods::Network
         matchEndedAt = -1;
         matchId = NetLifecycleTracker::Next(matchId);
         snapshots.ResetIncomingSequence();
+        snapshots.ClearLatest(); // Never forward a prior match snapshot to a new peer.
         slotIdentity.ResetLives();
         for (const ServerPeerRegistry::PeerHandle& peer : peers.All())
         {

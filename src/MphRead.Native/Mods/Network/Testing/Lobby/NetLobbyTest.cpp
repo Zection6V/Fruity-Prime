@@ -206,6 +206,15 @@ namespace MphRead::Mods::Network
             Send(PacketType::MatchEnd, bytes);
         }
 
+        void PickMap(const std::string& roomKey)
+        {
+            MapPickPacket pick{};
+            pick.RoomKey = roomKey;
+            std::array<std::uint8_t, MapPickPacket::Size> bytes{};
+            pick.Write(bytes);
+            Send(PacketType::MapPick, bytes);
+        }
+
         void ProposeMap(const std::string& roomKey)
         {
             VotePacket vote{};
@@ -1055,24 +1064,15 @@ namespace MphRead::Mods::Network
         rig.Stable();
         Check(!a.Authority && !b.Authority, "lobby owner and guests never receive client authority");
         rig.Wait([&a]() { return a.State->Phase == SessionPhase::PostMatch; }, "results entered");
-        for (const std::unique_ptr<Client>& client : rig.Clients)
-        {
-            client->ReadyResults();
-        }
-        rig.Wait([&a]() { return a.State->Phase == SessionPhase::Lobby; }, "results return to lobby", 18000);
+        const std::uint16_t firstMatch = a.State->MatchId;
+        a.PickMap(Rooms()[0]);
+        rig.Wait([&a, firstMatch]() { return a.State->Phase == SessionPhase::InMatch
+            && a.State->MatchId != firstMatch; }, "results vote starts next match automatically", 20000);
         rig.Stable();
+        Check(a.State->Match.RoomKey == Rooms()[0], "voted room becomes next lobby-policy match");
         Check(originalA == a.Transport && originalB == b.Transport && a.Slot == slotA && b.Slot == slotB,
             "same UDP transports and slots across rounds");
-        Check(NoneReady(a.Roster), "return clears lobby ready");
-        const std::uint16_t firstMatch = a.State->MatchId;
-        rig.ReadyAll();
-        static_cast<void>(rig.Expect(a, a.Command(LobbyCommandType::StartMatch), LobbyResultCode::Ok));
-        for (const std::unique_ptr<Client>& client : rig.Clients)
-        {
-            client->Loaded();
-        }
-        rig.Wait([&a]() { return a.State->Phase == SessionPhase::InMatch; }, "second round starts");
-        Check(a.State->MatchId != firstMatch, "new match id on same map");
+        Check(a.State->MatchId != firstMatch, "new match identity on auto rotation");
         a.Dispose();
         rig.Remove(a);
         rig.Wait([&b]() { return b.State.value().OwnerSlot == b.Slot; }, "oldest peer becomes owner");
@@ -1331,29 +1331,17 @@ namespace MphRead::Mods::Network
         NetSession::MarkMatchLoaded();
         pumpUntil([]() { return NetSession::IsPlaying(); }, "real load ack starts match");
         Check(!NetSession::FreezeGameplay(), "gameplay released after barrier");
+        const std::uint16_t firstMatch = NetSession::CurrentMatchId();
         NetSession::SendMatchEnd();
         pumpUntil([]() { return NetSession::IsPostMatch(); }, "real client results");
-        std::uint32_t frame = 100;
-        pumpUntil([&frame]()
-        {
-            IntentPacket intent{};
-            intent.Frame = frame++;
-            intent.Buttons = IntentButtons::ReadyState;
-            NetSession::SendIntent(intent);
-            return NetSession::IsInLobby();
-        }, "real client returns to lobby", 18000);
-        NetSession::ResetMatchState();
+        pumpUntil([firstMatch]() { return NetSession::IsPlaying()
+            && NetSession::CurrentMatchId() != firstMatch; },
+            "real client enters next match without lobby/ready command", 20000);
         Check(NetSession::Active() && NetSession::ConnectionPort() == port && NetSession::LocalSlot() == slot
             && NetSession::ClientId == clientId && NetSession::LocalIsLobbyOwner(),
-            "real client socket/slot/id/owner survive match teardown");
-        pumpUntil(consistent, "next lobby consistent");
-        Check(NetSession::SendLobbyCommand(LobbyCommandType::SetReady, 255, -1, true), "ready for second real-client match");
-        pumpUntil(readyReceived, "second ready received");
-        Check(NetSession::SendLobbyCommand(LobbyCommandType::StartMatch), "second real-client start");
-        pumpUntil([]() { return NetSession::IsStarting(); }, "second real-client load barrier");
-        NetSession::MarkMatchLoaded();
-        pumpUntil([]() { return NetSession::IsPlaying(); }, "second real-client round");
-        Check(NetSession::ConnectionPort() == port && NetSession::LocalSlot() == slot, "same client UDP session in second match");
+            "real client socket/slot/id/owner survive auto rotation");
+        Check(!NetSession::FreezeGameplay(), "auto-rotated match runs without lobby freeze");
+        pumpUntil(consistent, "next match session and roster consistent");
         NetSession::Stop();
         static_cast<void>(NetLag::Configure("0"));
     }

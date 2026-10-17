@@ -37,15 +37,24 @@ namespace MphRead::Entities
         }
         pose.HasPrevious = pose.Step + 1 == step;
         pose.SameForm = pose.HasPrevious && pose.AltForm == alt;
-        pose.Previous = pose.Current;
+        // A step that did not run the world (the results screen) moved no
+        // body: nothing to carry on, and no next pose to look ahead to --
+        // the game's own look-ahead counts frames that still pass there,
+        // and Kanden's tail wiggled on a body standing still.
+        const bool world = Mods::Render::ScenePresentation::WorldAdvanced();
+        pose.Previous = world ? pose.Current : now;
         pose.Current = now;
-        pose.PreviousSegments = pose.CurrentSegments;
+        pose.PreviousSegments = world ? pose.CurrentSegments : _kandenSegMtx;
         pose.CurrentSegments = _kandenSegMtx;
         pose.PreviousEye = pose.CurrentEye;
         pose.PreviousTarget = pose.CurrentTarget;
         if (_cameraInfo != nullptr)
         {
             pose.CurrentEye = _cameraInfo->Position;
+            if (!pose.HasPrevious) pose.FovSteps = 0;
+            std::rotate(pose.Fov.begin(), pose.Fov.begin() + 1, pose.Fov.end());
+            pose.Fov.back() = _cameraInfo->Fov;
+            pose.FovSteps = std::min<std::int32_t>(pose.FovSteps + 1, static_cast<std::int32_t>(pose.Fov.size()));
             pose.CurrentShake = _cameraInfo->ModShakeOffset;
             pose.CurrentTarget = _cameraInfo->Target - pose.CurrentShake;
             if (_cameraInfo->ModShakeSlot)
@@ -75,7 +84,8 @@ namespace MphRead::Entities
         }
         pose.AltForm = alt;
         pose.Step = step;
-        ModLookAheadKandenSegments();
+        if (world) ModLookAheadKandenSegments();
+        else pose.HasNextSegments = false;
     }
 
     void PlayerEntity::ModLookAheadKandenSegments()

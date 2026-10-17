@@ -33,6 +33,7 @@ namespace MphRead::Mods::Render
         bool advanced = false;
         std::optional<double> forcedPhase;
         std::uint64_t carriedItems = 0;
+        bool worldAdvanced = true;
     }
 
     void ScenePresentation::BeginStep() noexcept
@@ -40,10 +41,11 @@ namespace MphRead::Mods::Render
         advanced = false;
     }
 
-    void ScenePresentation::EndStep(Scene& scene)
+    void ScenePresentation::EndStep(Scene& scene, bool world)
     {
         ++step;
         advanced = true;
+        worldAdvanced = world;
         // The players' poses are a handful of matrices; every entity's is a
         // map a step, which a headless process, drawing nothing, never reads.
         for (auto it = scene.GetPlayerEntities().GetEnumerator(); it.MoveNext();)
@@ -58,13 +60,18 @@ namespace MphRead::Mods::Render
             PoseHistory& pose = poses[entity.get()];
             const Matrix4 now = static_cast<Matrix4>(entity->Transform);
             pose.HasPrevious = pose.Step + 1 == step;
-            pose.Previous = pose.Current;
+            pose.Previous = world ? pose.Current : now;
             pose.Current = now;
             pose.Step = step;
         }
         // An entity not seen this step has left the scene, or is not part of
         // it any more; its address may be a new entity's by the next one.
         std::erase_if(poses, [](const auto& entry) { return entry.second.Step != step; });
+    }
+
+    bool ScenePresentation::WorldAdvanced() noexcept
+    {
+        return worldAdvanced;
     }
 
     void ScenePresentation::NoteAdded(const Entities::EntityBase& entity)

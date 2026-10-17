@@ -2,6 +2,7 @@
 #include "Mods/Network/Bots/NetBotRoles.hpp"
 #include "Mods/Network/Gameplay/Claims/Hit/NetHitClaims.hpp"
 #include "Mods/Network/Gameplay/Replication/NetSmoothing.hpp"
+#include "Mods/Render/InstagibRails.hpp"
 
 #include "GameState.hpp"
 #include "Scene.hpp"
@@ -68,16 +69,23 @@ namespace MphRead::Mods::Network
         return NetSession::Active();
     }
 
-    void NetRoomChange::Reset()
+    void NetRoomChange::ResetForMatch()
     {
         _loadPending = false;
-        _requested = "";
+        _requested.clear();
         _requestedFrame = 0;
         _fetchWanted.clear();
         _fetchState.reset();
         _requestedMatch = 0;
-        _loadedMatch = 0;
         _loadedFrame = 0;
+        // Preserve _loadedMatch: a second round on the same map must rebuild
+        // the existing scene rather than being mistaken for the first load.
+    }
+
+    void NetRoomChange::Reset()
+    {
+        ResetForMatch();
+        _loadedMatch = 0;
     }
 
     void NetRoomChange::Sync(Scene& scene)
@@ -192,6 +200,9 @@ namespace MphRead::Mods::Network
         _requestedFrame = NetSession::NetFrame();
         _loadPending = true;
         _requestedMatch = match;
+        // A new round can reuse the same Scene and even the same room key.
+        // Its rail textures and active shots belong to the old round.
+        Mods::Render::InstagibRails::ForgetScene(scene);
         NativeRuntime::ConsoleWriteLine((current == wanted
             ? "[net] server started a new match on " + wanted + "; loading it"
             : "[net] server rotated to " + wanted + "; loading it"));
@@ -209,6 +220,7 @@ namespace MphRead::Mods::Network
         // authority's initial Spawn while constructing the requested room.
         _loadedMatch = _requestedMatch;
         _loadPending = false;
+        NetLaunch::ApplyMatchRules();
         const std::int32_t localSlot
             = std::max(NetSession::LocalSlot(), 0);
         for (std::int32_t slot = 0; slot < Entities::PlayerEntity::MaxPlayers(); ++slot)

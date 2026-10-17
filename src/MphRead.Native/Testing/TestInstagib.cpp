@@ -47,6 +47,16 @@ int main()
     using OpenTK::Mathematics::Vector3;
     bool ok = true;
 
+    ok &= Check(InstagibRails::MaySpawn(true, false)
+        && !InstagibRails::MaySpawn(false, false)
+        && !InstagibRails::MaySpawn(true, true),
+        "new rails spawn during play, not during results");
+    const double frozenAge = InstagibRails::AgeAt(10.0, 80.0, 10.3);
+    ok &= Check(std::abs(frozenAge - 0.3) < 0.000001
+        && InstagibRails::AgeAt(10.0, 500.0, 10.3) == frozenAge
+        && InstagibRails::AgeAt(10.0, 10.5, std::nullopt) == 0.5,
+        "existing rails retain age and helix pose throughout time stop");
+
     MatchDefinition match{};
     ok &= Check(!match.Instagib && (match.Rules() & SessionRules::Instagib) == SessionRules::None,
         "off by default, and off in the rule flags");

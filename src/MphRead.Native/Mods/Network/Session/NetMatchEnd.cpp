@@ -3,6 +3,7 @@
 #include "GameState.hpp"
 #include "NativeRuntime/System/Console.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
+#include "Mods/Network/Session/NetRoomChange.hpp"
 
 #include "Mods/Network/Diagnostics/NetLog.hpp"
 #include "Mods/Network/Protocol/NetProtocol.hpp"
@@ -52,6 +53,13 @@ namespace MphRead::Mods::Network
     void NetMatchEnd::Sync()
     {
         if (!NetSession::Active())
+        {
+            return;
+        }
+        // The authority's previous results scene outlives the new match ID
+        // until NetRoomChange rebuilds it. Never end the new match from that
+        // old scene before the new room is ready.
+        if (NetSession::IsAuthority() && !NetRoomChange::GameplayReady())
         {
             return;
         }

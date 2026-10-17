@@ -84,6 +84,8 @@ namespace MphRead::Mods::Launcher::Gui
         bool g_quit = false;
         bool g_menuOpen = false;
         bool g_endPanel = false;
+        // The lobby-open signal must wait until the replacement Qt Quick host has loaded QML.
+        bool g_openLobbyWhenReady = false;
         std::unique_ptr<MphRead::Qt::ShellBridge> g_bridge;
         std::unique_ptr<MphRead::Qt::UiHost> g_host;
 
@@ -228,13 +230,16 @@ namespace MphRead::Mods::Launcher::Gui
             MphRead::Mods::Network::NetSession::ResetMatchState();
             MphRead::Mods::PauseMenu::Reset();
             ShowPage("front");
-            g_bridge->OpenLobby();
             if (auto* gameWindow = MphRead::Qt::GameWindow())
                 g_host = std::make_unique<MphRead::Qt::UiHost>(*gameWindow, *g_bridge);
+            // UiHost constructs its QML root lazily in Tick(), not in its constructor.
+            // Emitting lobbyOpened here would be lost and leave the front screen visible.
+            g_openLobbyWhenReady = true;
         }
 
         void EndMatch(MphRead::RenderWindow& window)
         {
+            g_openLobbyWhenReady = false;
             Shell::CloseMenu();
             g_host.reset();
             MphRead::Mods::Render::UiOverlay::Release();
@@ -683,6 +688,7 @@ namespace MphRead::Mods::Launcher::Gui
         MphRead::Mods::Launcher::ShellMatchFlow::ClearPending();
         g_endMatch = false;
         g_quit = false;
+        g_openLobbyWhenReady = false;
         MphRead::Mods::Network::NetSession::Stop();
         MphRead::Mods::Network::NetHostSession::Stop();
         window.reset();
@@ -732,6 +738,11 @@ namespace MphRead::Mods::Launcher::Gui
         }
         const OpenTK::Mathematics::Vector2i framebuffer = window.FramebufferSize();
         g_host->Tick(framebuffer.X, framebuffer.Y);
+        if (g_openLobbyWhenReady && g_host->Ready())
+        {
+            g_openLobbyWhenReady = false;
+            g_bridge->OpenLobby();
+        }
         // Auto picked Vulkan and the menus cannot draw on it: the window is
         // remade on OpenGL rather than left without a launcher.
         namespace Rhi = MphRead::NativeRuntime::Rhi;

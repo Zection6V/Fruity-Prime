@@ -285,9 +285,23 @@ namespace MphRead::Entities
             shake = pose.ShakeFrom + ::OpenTK::Mathematics::Multiply(pose.ShakeTo - pose.ShakeFrom, age);
             turn = turn - pose.CurrentShake;
         }
-        if (eye.LengthSquared() == 0 && turn.LengthSquared() == 0 && shake.LengthSquared() == 0) return false;
+        // A weapon's zoom steps its field of view each step, as the game
+        // does: drawn between steps on to where the next step takes it, at
+        // the game's own pace (MotionCarry::Eased).
+        float fov = camera.Fov;
+        if (pose.Step == Mods::Render::ScenePresentation::CurrentStep()
+            && pose.FovSteps == static_cast<std::int32_t>(pose.Fov.size()) && camera.Fov == pose.Fov.back())
+        {
+            fov = Mods::Render::MotionCarry::Eased(pose.Fov[0], pose.Fov[1], pose.Fov[2],
+                Mods::Render::ScenePresentation::ShownPhase());
+        }
+        if (eye.LengthSquared() == 0 && turn.LengthSquared() == 0 && shake.LengthSquared() == 0 && fov == camera.Fov)
+        {
+            return false;
+        }
         ModSaveFrameView();
         ModCarryCamera(eye, turn);
+        _cameraInfo->Fov = fov;
         _modFrameView.Shaken = shake.LengthSquared() > 0;
         _modFrameView.Shake = shake;
         return true;
@@ -317,6 +331,7 @@ namespace MphRead::Entities
             view.CameraFacing = _cameraInfo->Facing;
             view.CameraTrueUp = _cameraInfo->TrueUp;
             view.CameraView = _cameraInfo->ViewMatrix;
+            view.CameraFov = _cameraInfo->Fov;
             view.CameraNode = _cameraInfo->NodeRef;
         }
     }
@@ -498,6 +513,7 @@ namespace MphRead::Entities
             _cameraInfo->Facing = view.CameraFacing;
             _cameraInfo->TrueUp = view.CameraTrueUp;
             _cameraInfo->ViewMatrix = view.CameraView;
+            _cameraInfo->Fov = view.CameraFov;
             _cameraInfo->NodeRef = view.CameraNode;
         }
         ModPlaceGunEffects();

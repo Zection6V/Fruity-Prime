@@ -1216,7 +1216,6 @@ namespace MphRead::Entities
         SetCombatVisor();
         if (beam != BeamType::Imperialist)
         {
-            _sniperReticle = false;
             ResetReticle();
         }
         else if (!_sniperReticle)

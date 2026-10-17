@@ -135,13 +135,6 @@ namespace MphRead::Mods::Network
         {
             throw std::invalid_argument("server simulation requires a session lifecycle port");
         }
-        // Preserve the incoming rules before StartAuthority consumes the
-        // session packet. Scene construction resets game state, so apply the
-        // authoritative flags after constructing it and before player creation.
-        const bool instagib = session.has_value() && session->Match.Instagib;
-        const bool friendlyFire = session.has_value() && session->Match.FriendlyFire;
-        const bool affinityWeapons = session.has_value() && session->Match.AffinityWeapons;
-        const bool shadowFreeze = !session.has_value() || session->Match.ShadowFreeze;
         _sessionPort = std::move(sessionPort);
         Mods::Headless::Enter();
 
@@ -166,10 +159,6 @@ namespace MphRead::Mods::Network
                 OpenTK::Mathematics::Vector2i(256, 192), *keyboard, *mouse,
                 [](std::string) {}, []() {});
 
-            GameState::Instagib(instagib);
-            GameState::FriendlyFire(friendlyFire);
-            GameState::AffinityWeapons(affinityWeapons);
-            GameState::ShadowFreeze(shadowFreeze);
             NetLaunch::BuildPlayers(*scene, Hunter::Samus, 0,
                 GameState::IsTeamMode(mode), -1);
             scene->AddRoom(roomKey, mode, NetLaunch::RoomPlayerCount());

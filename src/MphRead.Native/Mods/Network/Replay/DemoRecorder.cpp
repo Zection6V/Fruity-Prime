@@ -63,6 +63,10 @@ namespace MphRead::Mods::Network
         RosterPacket roster = NetSession::LobbyRoster();
         roster.MatchId = _matchBoundary.MatchId();
         roster.AuthorityEpoch = _matchBoundary.Epoch();
+        // A synthetic bootstrap is strictly older than the first real roster
+        // of the new stream. Never let a carried-over roster revision suppress
+        // the server's authoritative update after rotation.
+        roster.Revision = 0;
         if (roster.Count == 0) return;
         std::vector<std::uint8_t> payload(RosterPacket::Size);
         roster.Write(payload);

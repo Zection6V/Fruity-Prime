@@ -1331,7 +1331,9 @@ namespace MphRead
     void Scene::ReleaseGpuForSwitch()
     {
         if (Mods::Headless::Active()) return;
-        Mods::Render::InstagibRails::ForgetScene(*this);
+        // RebuildGpuAfterSwitch restores scene texture bindings under the
+        // same IDs. Keep existing Instagib rails: only a true room/scene
+        // teardown needs to forget their geometry and cached bindings.
         _ownedTextures.clear();
         _gpuMeshCache.Clear();
         _transientGeometry.reset();

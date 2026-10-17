@@ -190,16 +190,10 @@ namespace MphRead::Mods::Network
                 throw;
             }
         }
-        if (Simulating())
-        {
-            _ports.Session->ApplySessionState(_ports.State->BuildSessionState());
-        }
+        // StartSimulation has already called SynchronizeSimulationState.
+        // Do not submit the same authority state a second time.
         _ports.State->BroadcastSessionState();
         MatchStatePacket state = _ports.State->BuildMatchState(now);
-        if (Simulating())
-        {
-            _ports.Session->ApplyMatchState(state, true);
-        }
         state.Write(*_ports.Scratch);
         for (const ServerPeerRegistry::PeerHandle& peer : _ports.Peers->All())
         {

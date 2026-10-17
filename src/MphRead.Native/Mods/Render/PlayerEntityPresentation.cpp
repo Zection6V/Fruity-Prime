@@ -207,13 +207,32 @@ namespace MphRead::Entities
         return std::pair{muzzle, aimed - muzzle};
     }
 
+    Matrix4 PlayerEntity::ModTrailSegment(std::int32_t index, Matrix4 segment) const
+    {
+        // The newest segment, laid at the ball this step, is drawn at the
+        // ball this picture has; the rest stay where they were laid.
+        const std::int32_t head = (_mbTrailIndices[static_cast<std::size_t>(SlotIndex())] + _mbTrailSegments - 1) % _mbTrailSegments;
+        const Vector3 at(segment.M41, segment.M42, segment.M43);
+        if (index != head || !IsAltForm() || at.X != Position.X || at.Y != Position.Y || at.Z != Position.Z) return segment;
+        if (const auto carry = ModPresentationCarry())
+        {
+            const Vector3 shown = Mods::Render::MotionCarry::Point(at, *carry);
+            segment.M41 = shown.X;
+            segment.M42 = shown.Y;
+            segment.M43 = shown.Z;
+        }
+        return segment;
+    }
+
     Vector3 PlayerEntity::ModPresentedPoint(Vector3 point) const
     {
         if (!Mods::Render::ScenePresentation::Moving()) return point;
-        // A local or watched view carried its camera with the body
-        // (ModCarryCamera): the body is where that eye has gone.
+        // A local or watched view carried its first-person camera with the
+        // body (ModCarryCamera): the body is where that eye has gone. A
+        // trailing camera moves on its own (ModTrailShift), and the body as
+        // it is drawn.
         const Mods::Input::FrameAimView& view = _modFrameView;
-        if (view.Active && view.Camera && _cameraInfo != nullptr)
+        if (view.Active && view.Camera && _cameraInfo != nullptr && _cameraType == CameraType::First && !IsAltForm())
         {
             return point + (_cameraInfo->Position - view.CameraPosition);
         }

@@ -12,12 +12,13 @@ namespace MphRead
         return {_usedRenderItems.size(), _singleParticleCount};
     }
 
-    void Scene::ModCarryDrawn(const ModDrawMark& from, const OpenTK::Mathematics::Matrix4& carry)
+    void Scene::ModCarryDrawn(const ModDrawMark& from, const OpenTK::Mathematics::Matrix4& carry,
+        std::optional<RenderItemType> keep)
     {
         std::size_t carried = 0;
         for (std::size_t i = from.Items; i < _usedRenderItems.size(); ++i)
         {
-            if (_usedRenderItems[i] == nullptr) continue;
+            if (_usedRenderItems[i] == nullptr || (keep && _usedRenderItems[i]->Type == *keep)) continue;
             Mods::Render::MotionCarry::Apply(*_usedRenderItems[i], carry);
             ++carried;
         }
@@ -70,6 +71,10 @@ namespace MphRead
 
     void Scene::ModCarryPlayerDrawn(const ModDrawMark& from, const Entities::PlayerEntity& player)
     {
-        if (const auto carry = player.ModPresentationCarry()) ModCarryDrawn(from, *carry);
+        // The morph ball's trail is where the ball has been, laid a step at a
+        // time: it stays where the steps left it (its head kept on the ball
+        // by ModTrailSegment). Carried with the ball's roll, it swung up and
+        // down, the more the more pictures were drawn.
+        if (const auto carry = player.ModPresentationCarry()) ModCarryDrawn(from, *carry, RenderItemType::TrailStack);
     }
 }

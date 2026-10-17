@@ -700,7 +700,8 @@ namespace MphRead::Entities
         std::vector<float> matrixStack(static_cast<std::size_t>(16 * _mbTrailSegments));
         for (std::int32_t i = 0; i < _mbTrailSegments; ++i)
         {
-            const Matrix4 matrix = ManagedAt(ManagedAt(_mbTrailMatrices, SlotIndex()), i);
+            // Mod hook: the head on the ball this picture has (Mods/Render/PlayerEntityPresentation).
+            const Matrix4 matrix = ModTrailSegment(i, ManagedAt(ManagedAt(_mbTrailMatrices, SlotIndex()), i));
             const std::size_t offset = static_cast<std::size_t>(i) * 16U;
             matrixStack[offset] = matrix.M11; matrixStack[offset + 1U] = matrix.M12;
             matrixStack[offset + 2U] = matrix.M13; matrixStack[offset + 3U] = matrix.M14;

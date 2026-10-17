@@ -1,6 +1,7 @@
 # テストセッション
 
 `start.bat` をダブルクリックするとゲーム画面まで起動します。
+`start-instagib.bat` は同じ構成で Instagib モードのオンラインテストセッションを起動します。サーバーの `-instagib` を有効にし、参加者へルールが同期されます。
 `stop.bat` は、このランチャーが起動したゲーム・bot・サーバーをまとめて終了します。
 起動処理の本体は `scripts/` にまとめています。
 
@@ -13,6 +14,7 @@
 
 ```bat
 tools\test-session\start.bat -Bots 3 -BotPingMs 250 -Hunter Kanden
+tools\test-session\start-instagib.bat -Bots 3 -BotPingMs 250 -Hunter Kanden
 ```
 
 使用する実行ファイルは `tools/build/out/msvc-Release/FruityPrime.exe`。

@@ -5,6 +5,7 @@
 #include "../MorphCameraEntity.hpp"
 #include "../RoomEntity.hpp"
 #include "../../Formats/CollisionDetection.hpp"
+#include "../../Mods/Input/FreeCameraFlight.hpp"
 #include "../../Mods/InputSettings.hpp"
 #include "../../Scene.hpp"
 #include "../../Utility/Rng.hpp"
@@ -717,42 +718,11 @@ namespace MphRead::Entities
         }
         else
         {
-            const float limit = Fixed::ToFloat(40);
-            if (camera.Facing.X < limit && camera.Facing.X > -limit
-                && camera.Facing.Z < limit && camera.Facing.Z > -limit)
-            {
-                if (std::abs(camera.Facing.X) >= 1.0F / 4096.0F
-                    || std::abs(camera.Facing.X) >= 1.0F / 4096.0F)
-                {
-                    camera.Facing.X *= 4.0F;
-                    camera.Facing.Z *= 4.0F;
-                }
-                else
-                {
-                    camera.Facing.X = limit;
-                }
-            }
-
-            if (Controls().MoveUp().IsDown())
-            {
-                camera.Position = camera.Position
-                    + Divide(ScaleVector(camera.Facing, 0.4F), 2.0F);
-            }
-            else if (Controls().MoveDown().IsDown())
-            {
-                camera.Position = camera.Position
-                    - Divide(ScaleVector(camera.Facing, 0.4F), 2.0F);
-            }
-            if (Controls().MoveLeft().IsDown())
-            {
-                camera.Position.X += camera.Field50 * 0.4F / 2.0F;
-                camera.Position.Z += camera.Field54 * 0.4F / 2.0F;
-            }
-            else if (Controls().MoveRight().IsDown())
-            {
-                camera.Position.X -= camera.Field50 * 0.4F / 2.0F;
-                camera.Position.Z -= camera.Field54 * 0.4F / 2.0F;
-            }
+            camera.Facing = Mods::Input::FreeCameraFlight::Steerable(camera.Facing);
+            // Mod hook: the flight is Mods::Input::FreeCameraFlight's, which pictures share.
+            camera.Position = Mods::Input::FreeCameraFlight::Moved(camera.Position, camera.Facing,
+                camera.Field50, camera.Field54, {Controls().MoveUp().IsDown(), Controls().MoveDown().IsDown(),
+                    Controls().MoveLeft().IsDown(), Controls().MoveRight().IsDown()});
 
             float aimY = 0.0F;
             float aimX = 0.0F;
@@ -773,31 +743,7 @@ namespace MphRead::Entities
             {
                 aimX *= -1.0F;
             }
-            const bool updateY = aimY != 0.0F
-                && (camera.Facing.Y < 0.985F || aimY < 0.0F)
-                && (camera.Facing.Y > -0.985F || aimY > 0.0F);
-            const bool updateX = aimX != 0.0F;
-            if (updateY || updateX)
-            {
-                float pitch = RadiansToDegrees(std::asin(camera.Facing.Y));
-                float yaw = RadiansToDegrees(std::atan2(
-                    camera.Facing.X, camera.Facing.Z));
-                if (updateY)
-                {
-                    pitch = std::fmod(pitch + aimY, 360.0F);
-                }
-                if (updateX)
-                {
-                    yaw = std::fmod(yaw + aimX, 360.0F);
-                }
-                pitch = DegreesToRadians(pitch);
-                yaw = DegreesToRadians(yaw);
-                const float cos = std::cos(pitch);
-                camera.Facing = Vector3(
-                    std::sin(yaw) * cos,
-                    std::sin(pitch),
-                    std::cos(yaw) * cos);
-            }
+            camera.Facing = Mods::Input::FreeCameraFlight::Turned(camera.Facing, aimX, aimY);
 
             Vector3 pos = camera.Position;
             if (RequireReference(scene.Room()).Meta().HasLimits)

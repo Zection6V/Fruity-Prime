@@ -70,7 +70,12 @@ namespace MphRead
         }
         const auto main = Entities::PlayerEntity::Main();
         const auto aiming = ModFrameAimPlayer();
-        if (main == nullptr || !main->ModPresentOwnView(aiming != nullptr ? _mouseState : nullptr)) return {};
+        if (main == nullptr) return {};
+        if (!main->ModPresentDeathCamera(*_mouseState, *_keyboardState)
+            && !main->ModPresentOwnView(aiming != nullptr ? _mouseState : nullptr))
+        {
+            return {};
+        }
         return Mods::Input::FrameAimPresentation(main);
     }
 

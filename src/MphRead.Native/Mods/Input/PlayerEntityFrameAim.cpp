@@ -16,6 +16,8 @@
 #include "../Network/Session/NetSession.hpp"
 #include "../SpectatorMode.hpp"
 #include "AimNumericPolicy.hpp"
+#include "FreeCameraFlight.hpp"
+#include "../InputSettings.hpp"
 #include "MouseAimTurn.hpp"
 #include "PointerDevice.hpp"
 #include "PointerInput.hpp"
@@ -322,6 +324,59 @@ namespace MphRead::Entities
     void PlayerEntity::ModNoteCameraSource()
     {
         _modCameraSource = {true, CurrentStep(), static_cast<::OpenTK::Mathematics::Vector3>(Position), _facingVector};
+    }
+
+    bool PlayerEntity::ModPresentDeathCamera(const ::OpenTK::Windowing::GraphicsLibraryFramework::MouseState& live,
+        const ::OpenTK::Windowing::GraphicsLibraryFramework::KeyboardState& keyboard)
+    {
+        using ::OpenTK::Mathematics::Vector3;
+        using Flight = Mods::Input::FreeCameraFlight;
+        ModRestoreFrameAim();
+        // Flown by its player once it has drifted out of the body: the
+        // spectators' free camera answers the keys and the mouse at the
+        // display's rate, and this one, flown a step at a time, is shown
+        // where the next step puts it for the keys held and the mouse moved
+        // so far -- the game's own flight (FreeCameraFlight), nothing behind
+        // the input, and every step lands where the pictures were going.
+        if (!Mods::Input::FrameAim::Enabled() || Mods::SpectatorMode::IsSpectating() || Health() > 0
+            || _cameraType != CameraType::Free || _cameraInfo == nullptr || !_input.MouseState.has_value()
+            || _aimFrame.Owner != Mods::Input::AimOwner::Local || Formats::CameraSequence::Current() != nullptr
+            || _camSwitchTimer < Values().CamSwitchTime * 2 || Mods::Input::PointerDevice::Active())
+        {
+            return false;
+        }
+        const ::MphRead::Entities::CameraInfo& camera = *_cameraInfo;
+        const Mods::Render::PlayerPoseHistory& pose = _modPose;
+        if (pose.Step != Mods::Render::ScenePresentation::CurrentStep() || !Same(camera.Position, pose.CurrentEye)
+            || !Same(camera.Target, camera.Position + camera.Facing))
+        {
+            return false;
+        }
+        const auto held = [&](const Keybind& bind)
+        {
+            if (bind.Type() == ButtonType::Key) return bind.Key() != Keybind::Keys::Unknown && keyboard.IsKeyDown(bind.Key());
+            if (bind.Type() == ButtonType::Mouse) return live.IsButtonDown(bind.MouseButton());
+            return bind.IsDown();
+        };
+        const Vector3 facing = Flight::Steerable(camera.Facing);
+        const Vector3 next = Flight::Moved(camera.Position, facing, camera.Field50, camera.Field54,
+            {held(Controls().MoveUp()), held(Controls().MoveDown()), held(Controls().MoveLeft()), held(Controls().MoveRight())});
+        const Vector3 eye = ::OpenTK::Mathematics::Multiply(next - camera.Position, Mods::Render::ScenePresentation::ShownPhase());
+        // The mouse the next step reads (ReadDirectFreeCameraAim), from the
+        // snapshot this step consumed: turned by all of it, as the aim is.
+        float aimX = 0.0F, aimY = 0.0F;
+        if (Controls().MouseAim() && !IsBot())
+        {
+            const auto [rawX, rawY] = live.DeltaFrom(*_input.MouseState);
+            const auto [x, y] = Mods::Input::PointerInput::Filter(rawX, rawY);
+            aimX = -x / 4.0F * Mods::InputSettings::MouseSensitivity() * (Controls().InvertAimX() ? -1.0F : 1.0F);
+            aimY = -y / 4.0F * Mods::InputSettings::MouseSensitivity() * (Controls().InvertAimY() ? -1.0F : 1.0F);
+        }
+        const Vector3 turn = Flight::Turned(facing, aimX, aimY) - camera.Facing;
+        if (!ModPresentCamera(eye, turn)) return false;
+        _modFrameView.ShownGun = _gunVec1;
+        _modFrameView.ShownFacing = _facingVector;
+        return true;
     }
 
     bool PlayerEntity::ModPresentWatchedView(std::optional<::OpenTK::Mathematics::Vector3> playoutShift)

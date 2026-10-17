@@ -50,8 +50,14 @@ namespace MphRead::Entities
         if (!IsMainPlayer() && _aimFrame.Owner != Mods::Input::AimOwner::Local) return;
         Mods::Render::PlaceEffect(_muzzleEffect, _gunVec2, _gunVec1, _muzzlePos);
         Mods::Render::PlaceEffect(_chargeEffect, _gunVec2, _gunVec1, _muzzlePos);
-        // The double damage glow round the gun, placed as the step places it.
+        // The double damage glow round the gun, and the flames on it while
+        // burning, placed as the step places them (on a ball, or on a body
+        // seen from outside, the flames are the body's).
         Mods::Render::PlaceEffect(_doubleDmgEffect, _upVector, _gunVec1, _muzzlePos);
+        if (IsMainPlayer() && !IsAltForm() && !IsMorphing())
+        {
+            Mods::Render::PlaceEffect(_burnEffect, _upVector, _gunVec1, _muzzlePos);
+        }
     }
 
     bool PlayerEntity::ModFrameAimAllowed(bool fixedCrosshair) const
@@ -214,6 +220,13 @@ namespace MphRead::Entities
     {
         using ::OpenTK::Mathematics::Vector3;
         if (_cameraInfo == nullptr) return false;
+        const ::MphRead::Entities::CameraInfo& camera = *_cameraInfo;
+        const Mods::Render::PlayerPoseHistory& pose = _modPose;
+        if (pose.Step != Mods::Render::ScenePresentation::CurrentStep()
+            || !Same(camera.Position, pose.CurrentEye) || !Same(camera.Target, pose.CurrentTarget + pose.CurrentShake))
+        {
+            return false;
+        }
         // The step moved the eye with the body, and the picture is a
         // fraction of a step on from it: carried on along that step's own
         // motion, the eye moves every frame where it otherwise jumps 60
@@ -223,19 +236,25 @@ namespace MphRead::Entities
         // step -- a teleport, a respawn -- is not carried. The body is
         // carried with it where it is drawn (ModPresentationCarry).
         constexpr float MaxStep = Mods::Render::MotionCarry::JumpDistance;
-        const ::MphRead::Entities::CameraInfo& camera = *_cameraInfo;
-        const Mods::Render::PlayerPoseHistory& pose = _modPose;
         const Vector3 stepped = pose.CurrentEye - pose.PreviousEye;
         const Vector3 looked = pose.CurrentTarget - pose.PreviousTarget;
-        const float phase = static_cast<float>(Mods::Render::ScenePresentation::Phase());
-        if (!Mods::Render::ScenePresentation::Moving() || !pose.HasPrevious
-            || pose.Step != Mods::Render::ScenePresentation::CurrentStep()
-            || !Same(camera.Position, pose.CurrentEye) || !Same(camera.Target, pose.CurrentTarget + pose.CurrentShake)
-            || stepped.LengthSquared() >= MaxStep * MaxStep || looked.LengthSquared() >= MaxStep * MaxStep)
+        Vector3 eye{};
+        Vector3 turn{};
+        if (Mods::Render::ScenePresentation::Moving() && pose.HasPrevious
+            && stepped.LengthSquared() < MaxStep * MaxStep && looked.LengthSquared() < MaxStep * MaxStep)
         {
-            return false;
+            const float phase = static_cast<float>(Mods::Render::ScenePresentation::Phase());
+            eye = ::OpenTK::Mathematics::Multiply(stepped, phase);
+            if (turnWithStep) turn = ::OpenTK::Mathematics::Multiply(looked - stepped, phase);
         }
-        const Vector3 eye = ::OpenTK::Mathematics::Multiply(stepped, phase);
+        return ModPresentCamera(eye, turn);
+    }
+
+    bool PlayerEntity::ModPresentCamera(::OpenTK::Mathematics::Vector3 eye, ::OpenTK::Mathematics::Vector3 turn)
+    {
+        using ::OpenTK::Mathematics::Vector3;
+        const ::MphRead::Entities::CameraInfo& camera = *_cameraInfo;
+        const Mods::Render::PlayerPoseHistory& pose = _modPose;
         // The hit shake is a fresh random offset on every other step
         // (CameraInfo::Update), held for one and gone for the next:
         // drawn as it is, a 30 Hz flicker. The camera is carried
@@ -244,12 +263,19 @@ namespace MphRead::Entities
         // the finished view (FrameAim::View) so that it tilts the
         // picture and never turns its heading or its roll -- which, as
         // a world offset on a sight line looking straight down, it does.
-        const float shakeAge = std::clamp((static_cast<float>(pose.Step - pose.ShakeStep) + phase)
-            / static_cast<float>(Mods::SimulationRate::StepsPerDsFrame), 0.0F, 1.0F);
-        const Vector3 shake = pose.ShakeFrom
-            + ::OpenTK::Mathematics::Multiply(pose.ShakeTo - pose.ShakeFrom, shakeAge);
-        const Vector3 turn = (turnWithStep ? ::OpenTK::Mathematics::Multiply(looked - stepped, phase) : Vector3{})
-            - pose.CurrentShake;
+        // A picture on the step's own instant too: drawn raw there, the
+        // shake jumped to its newest offset whenever a frame met a step.
+        Vector3 shake{};
+        if (pose.Step == Mods::Render::ScenePresentation::CurrentStep()
+            && Same(camera.Target, pose.CurrentTarget + pose.CurrentShake))
+        {
+            const float phase = Mods::Render::ScenePresentation::Moving()
+                ? static_cast<float>(Mods::Render::ScenePresentation::Phase()) : 0.0F;
+            const float age = std::clamp((static_cast<float>(pose.Step - pose.ShakeStep) + phase)
+                / static_cast<float>(Mods::SimulationRate::StepsPerDsFrame), 0.0F, 1.0F);
+            shake = pose.ShakeFrom + ::OpenTK::Mathematics::Multiply(pose.ShakeTo - pose.ShakeFrom, age);
+            turn = turn - pose.CurrentShake;
+        }
         if (eye.LengthSquared() == 0 && turn.LengthSquared() == 0 && shake.LengthSquared() == 0) return false;
         ModSaveFrameView();
         ModCarryCamera(eye, turn);
@@ -321,10 +347,7 @@ namespace MphRead::Entities
                     && swing.LengthSquared() < Mods::Render::MotionCarry::JumpDistance * Mods::Render::MotionCarry::JumpDistance
                 ? ::OpenTK::Mathematics::Multiply(swing, static_cast<float>(Mods::Render::ScenePresentation::Phase()))
                 : Vector3{};
-            if (eye.LengthSquared() == 0 && turn.LengthSquared() == 0) return false;
-            ModSaveFrameView();
-            ModCarryCamera(eye, turn);
-            shown = true;
+            shown = ModPresentCamera(eye, turn);
         }
         if (!shown) return false;
         Mods::Input::FrameAimView& view = _modFrameView;

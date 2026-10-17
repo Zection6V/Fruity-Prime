@@ -12,14 +12,21 @@ namespace MphRead
         return {_usedRenderItems.size(), _singleParticleCount};
     }
 
+    void Scene::ModCarryDrawn(const ModDrawMark& from, const OpenTK::Mathematics::Matrix4& carry)
+    {
+        ModCarryDrawn(from, carry, [&carry](const ::MphRead::RenderItem&) { return std::optional(carry); });
+    }
+
     void Scene::ModCarryDrawn(const ModDrawMark& from, const OpenTK::Mathematics::Matrix4& carry,
-        std::optional<RenderItemType> keep)
+        const std::function<std::optional<OpenTK::Mathematics::Matrix4>(const ::MphRead::RenderItem&)>& itemCarry)
     {
         std::size_t carried = 0;
         for (std::size_t i = from.Items; i < _usedRenderItems.size(); ++i)
         {
-            if (_usedRenderItems[i] == nullptr || (keep && _usedRenderItems[i]->Type == *keep)) continue;
-            Mods::Render::MotionCarry::Apply(*_usedRenderItems[i], carry);
+            if (_usedRenderItems[i] == nullptr) continue;
+            const auto itemMotion = itemCarry(*_usedRenderItems[i]);
+            if (!itemMotion) continue;
+            Mods::Render::MotionCarry::Apply(*_usedRenderItems[i], *itemMotion);
             ++carried;
         }
         for (std::int32_t i = from.Singles; i < _singleParticleCount; ++i)
@@ -71,10 +78,25 @@ namespace MphRead
 
     void Scene::ModCarryPlayerDrawn(const ModDrawMark& from, const Entities::PlayerEntity& player)
     {
-        // The morph ball's trail is where the ball has been, laid a step at a
-        // time: it stays where the steps left it (its head kept on the ball
-        // by ModTrailSegment). Carried with the ball's roll, it swung up and
-        // down, the more the more pictures were drawn.
-        if (const auto carry = player.ModPresentationCarry()) ModCarryDrawn(from, *carry, RenderItemType::TrailStack);
+        const auto carry = player.ModPresentationCarry();
+        if (!carry) return;
+        // What a player draws besides the body is not part of it, and moved
+        // with its roll it swung about the ball, the more the more pictures
+        // were drawn:
+        //  - the morph ball's trail is where the ball has been, laid a step
+        //    at a time, and stays where the steps left it (its head kept on
+        //    the ball by ModTrailSegment);
+        //  - the blob shadow lies on the floor under the body (PlayerEntity::
+        //    DrawShadow), and follows it across the floor only.
+        const OpenTK::Mathematics::Vector3 at = player.Position;
+        const OpenTK::Mathematics::Vector3 moved = Mods::Render::MotionCarry::Point(at, *carry) - at;
+        const OpenTK::Mathematics::Matrix4 across = OpenTK::Mathematics::CreateTranslation(
+            OpenTK::Mathematics::Vector3(moved.X, 0.0F, moved.Z));
+        ModCarryDrawn(from, *carry, [&](const ::MphRead::RenderItem& item) -> std::optional<OpenTK::Mathematics::Matrix4>
+        {
+            if (item.Type == RenderItemType::TrailStack) return std::nullopt;
+            if (item.Type == RenderItemType::Particle) return across;
+            return *carry;
+        });
     }
 }

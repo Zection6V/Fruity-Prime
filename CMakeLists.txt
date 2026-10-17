@@ -1194,6 +1194,16 @@ if(NOT ANDROID)
         set_target_properties(fruity_prime PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
     endif()
     target_link_libraries(fruity_prime PRIVATE fruity_mphread_native)
+    if(MSVC)
+        # Ship symbols separately from the small game package. In a local
+        # Release build, embed debug records into objs and let the linker
+        # produce FruityPrime.pdb so DbgHelp can resolve real throw sites.
+        foreach(_fruity_symbols_target
+            fruity_ncsfplay_native fruity_mphread_native fruity_mphread_qt fruity_prime)
+            target_compile_options(${_fruity_symbols_target} PRIVATE "$<$<CONFIG:Release>:/Z7>")
+        endforeach()
+        target_link_options(fruity_prime PRIVATE "$<$<CONFIG:Release>:/DEBUG:FULL>")
+    endif()
     if(MSVC AND FRUITY_GOLDEN_PARITY_ADAPTER)
         # Exact MSVC Actions builds compile these two production owners, but
         # link.exe still cannot resolve Weapons::{Current,WeaponsMP} or

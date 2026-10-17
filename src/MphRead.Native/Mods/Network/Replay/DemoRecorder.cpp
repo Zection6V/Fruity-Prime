@@ -1,5 +1,7 @@
 #include "Mods/Network/Replay/DemoRecorder.hpp"
 #include "NativeRuntime/System/DateTime.hpp"
+#include "NativeRuntime/System/Console.hpp"
+#include "NativeRuntime/System/IO.hpp"
 
 #include "Mods/Network/Replay/DemoClip.hpp"
 #include "Mods/Network/Replay/DemoFile.hpp"
@@ -29,6 +31,10 @@ namespace MphRead::Mods::Network
     std::unique_ptr<DemoWriter> DemoRecorder::_writer{};
     DemoFrameClock DemoRecorder::_frameClock{};
     std::optional<std::string> DemoRecorder::_currentPath{};
+    DemoMatchBoundary DemoRecorder::_matchBoundary{};
+    std::string DemoRecorder::_stamp{};
+    std::uint32_t DemoRecorder::_segment = 0;
+    bool DemoRecorder::_needsRosterBootstrap = false;
 
     bool DemoRecorder::IsRecording() noexcept
     {
@@ -40,53 +46,134 @@ namespace MphRead::Mods::Network
         return _currentPath;
     }
 
-    bool DemoRecorder::Start()
+    void DemoRecorder::WritePacket(PacketType type, std::span<const std::uint8_t> payload)
     {
-        if (IsRecording() || !NetSession::Active() || DemoPlayback::IsActive())
+        if (!_writer) return;
+        std::vector<std::uint8_t> bytes(1 + payload.size());
+        bytes[0] = static_cast<std::uint8_t>(type);
+        std::copy(payload.begin(), payload.end(), bytes.begin() + 1);
+        _writer->WriteRecord(0, bytes);
+    }
+
+    void DemoRecorder::WriteRosterBootstrap()
+    {
+        if (!_writer || !_matchBoundary.HasIdentity()) return;
+        // A new round still needs the active players' identities before its
+        // first snapshot/roster arrives. The real roster supersedes this copy.
+        RosterPacket roster = NetSession::LobbyRoster();
+        roster.MatchId = _matchBoundary.MatchId();
+        roster.AuthorityEpoch = _matchBoundary.Epoch();
+        if (roster.Count == 0) return;
+        std::vector<std::uint8_t> payload(RosterPacket::Size);
+        roster.Write(payload);
+        WritePacket(PacketType::Roster, payload);
+        _needsRosterBootstrap = false;
+    }
+
+    void DemoRecorder::WriteBootstrap()
+    {
+        if (!_writer || !_matchBoundary.HasIdentity()) return;
+        const auto session = NetSession::ServerSession();
+        if (session && session->MatchId == _matchBoundary.MatchId()
+            && session->AuthorityEpoch == _matchBoundary.Epoch())
         {
-            return false;
+            std::vector<std::uint8_t> payload(SessionStatePacket::Size);
+            session->Write(payload);
+            WritePacket(PacketType::SessionState, payload);
         }
+        const auto match = NetSession::ServerMatch();
+        if (match && match->MatchId == _matchBoundary.MatchId()
+            && match->AuthorityEpoch == _matchBoundary.Epoch())
+        {
+            std::vector<std::uint8_t> payload(MatchStatePacket::Size);
+            match->Write(payload);
+            WritePacket(PacketType::MatchState, payload);
+            WriteRosterBootstrap();
+        }
+    }
 
-        const std::optional<MatchStatePacket> serverMatch = NetSession::ServerMatch();
-        const std::string room = SanitizeFileName(
-            serverMatch.has_value() && serverMatch->RoomKey.has_value()
-                ? serverMatch->RoomKey.value()
-                : std::string("match"));
-
-        const std::string timestamp = ::MphRead::NativeRuntime::DateTimeToString(
-            ::MphRead::NativeRuntime::DateTimeNow(), "yyyy-MM-dd_HH-mm-ss");
-
-        const std::string fileName
-            = room + "_" + timestamp + std::string(DemoFile::Extension);
-        const std::string& exportPath = Paths::Export();
-        const std::string path = Paths::Combine(exportPath, "_demos", fileName);
-
+    bool DemoRecorder::OpenSegment(std::string_view room)
+    {
+        const std::string root = SanitizeFileName(room.empty() ? "match" : std::string(room));
+        const std::string stem = root + "_" + _stamp + "_m"
+            + std::to_string(_matchBoundary.MatchId()) + "_part" + std::to_string(_segment);
+        const std::string base = Paths::Combine(Paths::Export(), "_demos", stem);
+        std::string path = base + std::string(DemoFile::Extension);
+        // In particular, recording twice in the same second cannot overwrite
+        // an earlier game or an already finalized round.
+        for (std::uint32_t suffix = 2; NativeRuntime::FileExists(path); ++suffix)
+        {
+            path = base + "_" + std::to_string(suffix) + std::string(DemoFile::Extension);
+        }
         try
         {
             _writer = std::make_unique<DemoWriter>(path);
+            _currentPath = path;
+            _needsRosterBootstrap = true;
+            NativeRuntime::ConsoleWriteLine("[demo] recording match "
+                + std::to_string(_matchBoundary.MatchId()) + " to " + path);
+            return true;
         }
-        catch (const std::ios_base::failure& ex)
+        catch (const std::exception& ex)
         {
-            std::cout << "[demo] could not start recording: " << ex.what() << '\n';
             _writer.reset();
+            _currentPath.reset();
+            NativeRuntime::ConsoleWriteLine(std::string("[demo] recording failed: ") + ex.what());
             return false;
         }
+    }
 
-        _currentPath = path;
-        _frameClock.Start(::MphRead::NativeRuntime::StopwatchGetTimestamp(),
-            ::MphRead::NativeRuntime::StopwatchFrequency());
+    bool DemoRecorder::Start()
+    {
+        if (IsRecording() || !NetSession::Active() || DemoPlayback::IsActive()) return false;
+        _matchBoundary.Reset();
+        if (const auto match = NetSession::ServerMatch(); match)
+            (void)_matchBoundary.Observe(match->MatchId, match->AuthorityEpoch);
+        else if (const auto session = NetSession::ServerSession(); session)
+            (void)_matchBoundary.Observe(session->MatchId, session->AuthorityEpoch);
+        _stamp = NativeRuntime::DateTimeToString(
+            NativeRuntime::DateTimeNow(), "yyyy-MM-dd_HH-mm-ss");
+        _segment = 1;
+        if (!OpenSegment(NetSession::ServerMatch().has_value()
+            ? NetSession::ServerMatch()->RoomKey.value_or("match") : "match"))
+        {
+            Stop();
+            return false;
+        }
+        _frameClock.Start(NativeRuntime::StopwatchGetTimestamp(), NativeRuntime::StopwatchFrequency());
+        WriteBootstrap();
         return true;
+    }
+
+    void DemoRecorder::RotateTo(const DemoMatchBoundary::Identity& identity, std::int64_t arrivedAt)
+    {
+        const std::string oldPath = _currentPath.value_or("");
+        if (_writer) _writer->Dispose();
+        _writer.reset();
+        _currentPath.reset();
+        ++_segment;
+        _frameClock.Start(arrivedAt, NativeRuntime::StopwatchFrequency());
+        if (OpenSegment(identity.Room))
+        {
+            WriteBootstrap();
+            NativeRuntime::ConsoleWriteLine("[demo] finalized " + oldPath);
+        }
+        else
+        {
+            Stop(); // Never continue writing the new round into an old file.
+        }
     }
 
     void DemoRecorder::Stop()
     {
-        if (_writer != nullptr)
-        {
-            _writer->Dispose();
-        }
+        if (_writer) _writer->Dispose();
         _writer.reset();
         _currentPath.reset();
         _frameClock.Reset();
+        _matchBoundary.Reset();
+        _stamp.clear();
+        _segment = 0;
+        _needsRosterBootstrap = false;
     }
 
     void DemoRecorder::Record(ReceivedPacket packet)
@@ -118,7 +205,20 @@ namespace MphRead::Mods::Network
             return;
         }
 
+        // Record() is called before dispatch. Split on the authoritative
+        // incoming match identity even when the next round uses the same map.
+        const auto identity = DemoMatchBoundary::Decode(data);
+        if (identity && _matchBoundary.Observe(identity->MatchId, identity->Epoch))
+        {
+            RotateTo(*identity, packet.ArrivedAt);
+            if (!_writer) return;
+        }
         _writer->WriteRecord(RecordFrame(data, _frameClock.FrameAt(packet.ArrivedAt)), data);
+        if (_needsRosterBootstrap && identity
+            && (packet.Type() == PacketType::MatchState || packet.Type() == PacketType::MapChange))
+        {
+            WriteRosterBootstrap();
+        }
     }
 
     void DemoRecorder::RecordOwnIntent(std::int32_t slot, const IntentPacket& intent)

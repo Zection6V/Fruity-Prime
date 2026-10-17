@@ -341,6 +341,18 @@ jobs:
           if-no-files-found: error
           path: build/native/dist/
 
+      # Symbol files are intentionally not part of the user distribution.
+      # A matching PDB from this Actions run can resolve release crash RVAs.
+      - name: Upload Windows game symbols
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: FruityPrime-cpp-windows-symbols-${{ github.run_number }}
+          if-no-files-found: warn
+          path: |
+            build/native/**/FruityPrime.pdb
+            build/native/**/fruity_prime.pdb
+
   linux:
     name: Linux / GCC
     runs-on: ubuntu-24.04

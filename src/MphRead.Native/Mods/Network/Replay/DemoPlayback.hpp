@@ -2,6 +2,7 @@
 
 #include "Mods/Network/Replay/DemoFile.hpp"
 #include "Mods/Network/Replay/DemoEndFrame.hpp"
+#include "Mods/Network/Replay/DemoMatchBoundary.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -43,5 +44,6 @@ namespace MphRead::Mods::Network
         static bool _isActive;
         static std::optional<std::string> _lastError;
         static DemoEndFrame _endFrame;
+        static DemoMatchBoundary _matchBoundary;
     };
 }

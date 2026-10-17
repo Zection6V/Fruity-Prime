@@ -1,13 +1,17 @@
 #include "Mods/Network/Replay/DemoFrameClock.hpp"
 #include "Mods/Network/Replay/DemoEndFrame.hpp"
+#include "Mods/Network/Replay/DemoMatchBoundary.hpp"
 
 #include <iostream>
 #include <limits>
+#include <span>
+#include <vector>
 
 namespace
 {
     using MphRead::Mods::Network::DemoFrameClock;
     using MphRead::Mods::Network::DemoEndFrame;
+    using MphRead::Mods::Network::DemoMatchBoundary;
 
     bool Check(bool condition, const char* name)
     {
@@ -24,6 +28,51 @@ int main()
 {
     DemoFrameClock clock;
     bool passed = true;
+    DemoMatchBoundary boundary;
+    passed &= Check(!boundary.Observe(1, 50) && boundary.HasIdentity(),
+        "initial match identity starts the first file");
+    passed &= Check(!boundary.Observe(1, 50) && !boundary.Observe(0, 0),
+        "unchanged or invalid identity does not split files");
+    passed &= Check(boundary.Observe(2, 50) && boundary.MatchId() == 2,
+        "same-map rematch starts a separate demo file");
+    passed &= Check(!boundary.Observe(1, 50) && !boundary.Observe(2, 49),
+        "stale delayed control packets do not split a newer match");
+    passed &= Check(boundary.Observe(1, 51),
+        "authority epoch rollover identifies a new recording");
+    boundary.Reset();
+    passed &= Check(!boundary.HasIdentity() && !boundary.Observe(9, 55),
+        "explicit demo stop/new demo resets match identity");
+
+    // Check the actual binary control packets, not just synthetic IDs.
+    MphRead::Mods::Network::MatchStatePacket match{};
+    match.MatchId = 9;
+    match.AuthorityEpoch = 55;
+    match.RoomKey = "MP1 BATTLE";
+    std::vector<std::uint8_t> bytes(1 + MphRead::Mods::Network::MatchStatePacket::Size);
+    bytes[0] = static_cast<std::uint8_t>(MphRead::Mods::Network::PacketType::MatchState);
+    match.Write(std::span<std::uint8_t>(bytes).subspan(1));
+    auto decoded = DemoMatchBoundary::Decode(bytes);
+    passed &= Check(decoded && decoded->MatchId == 9 && decoded->Epoch == 55
+        && decoded->Room == "MP1 BATTLE", "decode real MatchState control packet");
+    match.MatchId = 10;
+    match.Write(std::span<std::uint8_t>(bytes).subspan(1));
+    decoded = DemoMatchBoundary::Decode(bytes);
+    passed &= Check(decoded && boundary.Observe(decoded->MatchId, decoded->Epoch),
+        "a new match on the same map splits the demo");
+
+    MphRead::Mods::Network::SessionStatePacket session{};
+    session.MatchId = 11;
+    session.AuthorityEpoch = 55;
+    session.Match.RoomKey = "MP2 BATTLE";
+    bytes.assign(1 + MphRead::Mods::Network::SessionStatePacket::Size, 0);
+    bytes[0] = static_cast<std::uint8_t>(MphRead::Mods::Network::PacketType::SessionState);
+    session.Write(std::span<std::uint8_t>(bytes).subspan(1));
+    decoded = DemoMatchBoundary::Decode(bytes);
+    passed &= Check(decoded && decoded->MatchId == 11 && decoded->Room == "MP2 BATTLE",
+        "detect rotation before its first MatchState from SessionState");
+    bytes.assign(1, static_cast<std::uint8_t>(MphRead::Mods::Network::PacketType::SessionState));
+    passed &= Check(!DemoMatchBoundary::Decode(bytes),
+        "truncated session packet must not invent a match boundary");
 
     // EOF must be a still picture after the final packet has been applied,
     // not an extra simulated frame or a restart from the beginning.

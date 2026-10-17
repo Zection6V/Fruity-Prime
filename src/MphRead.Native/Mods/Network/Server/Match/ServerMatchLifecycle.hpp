@@ -79,8 +79,6 @@ namespace MphRead::Mods::Network
         void HandleMatchEnd(const ReceivedPacket& packet, double now);
 
     private:
-        static constexpr double ReadyWaitSeconds = 30.0;
-        static constexpr double AllReadySeconds = 5.0;
         static constexpr double RecoveryCooldownSeconds = 10.0;
 
         [[nodiscard]] MatchDefinition CurrentDefinition() const;

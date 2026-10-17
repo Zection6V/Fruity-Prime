@@ -1,6 +1,7 @@
 #include "MapPick.hpp"
 
 #include "ThumbnailGenerator.hpp"
+#include "Mods/Network/Domain/MapRotationRules.hpp"
 #include "Mods/Network/Protocol/NetProtocol.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
 #include "../Metadata/Metadata.hpp"
@@ -20,6 +21,7 @@ namespace MphRead::Mods
     bool MapPick::_open = false;
     std::int32_t MapPick::_eligible = 0;
     std::string MapPick::_picked{};
+    std::string MapPick::_defaultNext{};
     std::int32_t MapPick::_cursor = 0;
     std::int32_t MapPick::_scroll = 0;
     std::int32_t MapPick::_window = 4;
@@ -116,9 +118,11 @@ namespace MphRead::Mods
     void MapPick::Begin(const std::string& currentRoom, bool open)
     {
         _rooms.clear();
+        _defaultNext = currentRoom;
         try
         {
             const std::vector<std::string> rooms = ThumbnailGenerator::MultiplayerRooms();
+            _defaultNext = Network::MapRotationRules::NextOrRepeat(rooms, currentRoom);
             for (const std::string& room : rooms)
             {
                 if (!Runtime::StringEqualsOrdinalIgnoreCase(room, currentRoom))
@@ -225,6 +229,7 @@ namespace MphRead::Mods
         _voted.clear();
         _labels.clear();
         _picked.clear();
+        _defaultNext.clear();
         _open = false;
         _cursor = 0;
         _scroll = 0;
@@ -235,6 +240,11 @@ namespace MphRead::Mods
     std::string MapPick::Chosen()
     {
         return _picked;
+    }
+
+    std::string MapPick::NextRoom()
+    {
+        return _picked.empty() ? _defaultNext : _picked;
     }
 
     void MapPick::Choose(std::int32_t index)

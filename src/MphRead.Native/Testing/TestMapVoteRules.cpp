@@ -1,4 +1,5 @@
 #include "../Mods/Network/Domain/MapVoteRules.hpp"
+#include "../Mods/Network/Domain/MapRotationRules.hpp"
 
 #include <array>
 #include <cstddef>
@@ -34,5 +35,11 @@ int main()
     passed &= Check(StillPossible(8, 2, RequiredYesVotes(8)), "remaining ballots can still reach threshold");
     passed &= Check(!StillPossible(8, 3, RequiredYesVotes(8)), "too many no votes make passage impossible");
     passed &= Check(!StillPossible(2, 3, 1), "invalid no count is not treated as possible");
+    using MphRead::Mods::Network::MapRotationRules::NextOrRepeat;
+    const std::vector<std::string> rooms{"MP1", "MP2", "MP3"};
+    passed &= Check(NextOrRepeat(rooms, "MP1") == "MP2", "no vote moves to next map");
+    passed &= Check(NextOrRepeat(rooms, "MP3") == "MP1", "last map wraps around");
+    passed &= Check(NextOrRepeat({"MP1"}, "MP1") == "MP1", "single map repeats");
+    passed &= Check(NextOrRepeat({}, "MP1") == "MP1", "empty catalog keeps current room");
     return passed ? 0 : 1;
 }

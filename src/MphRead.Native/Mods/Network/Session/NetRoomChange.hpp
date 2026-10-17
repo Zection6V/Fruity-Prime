@@ -37,6 +37,7 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool Rebuilding();
 
         static void Reset();
+        static void ResetForMatch();
         static void Sync(Scene& scene);
         [[nodiscard]] static std::shared_ptr<Entities::PlayerEntity> RebuildPlayers(
             Scene& scene, Hunter hunter, std::int32_t recolor);

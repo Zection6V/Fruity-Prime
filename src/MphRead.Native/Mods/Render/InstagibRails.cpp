@@ -4,6 +4,9 @@
 #include "../../NativeRuntime/System/Buffers.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Read.hpp"
+#include "../../GameState.hpp"
+#include "../Network/Session/NetMatchEnd.hpp"
+#include "../Network/Session/NetSession.hpp"
 #include "../../Scene.hpp"
 
 #include <algorithm>
@@ -12,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace
@@ -65,6 +69,16 @@ namespace
     // A picture held still for checking the look (InstagibRails::ShowDemo).
     bool g_demo = false;
     float g_demoAge = 0.0F;
+    // Results freeze a picture rather than destroying the visible shot.
+    // Keep this clock separate from the simulation frame counter.
+    std::optional<double> g_stoppedAt;
+
+    [[nodiscard]] bool MatchAllowsRails()
+    {
+        return ::MphRead::Mods::Render::InstagibRails::MaySpawn(
+            ::MphRead::GameState::MatchState() == ::MphRead::MatchState::InProgress,
+            ::MphRead::Mods::Network::NetMatchEnd::InIntermission());
+    }
 
     [[nodiscard]] double Now() noexcept
     {
@@ -279,8 +293,29 @@ namespace MphRead::Mods::Render
         return look;
     }
 
+    bool InstagibRails::MaySpawn(bool inProgress, bool intermission) noexcept
+    {
+        return inProgress && !intermission;
+    }
+
+    double InstagibRails::AgeAt(double born, double now, std::optional<double> stoppedAt) noexcept
+    {
+        return std::max(0.0, stoppedAt.value_or(now) - born);
+    }
+
     void InstagibRails::Add(Scene& scene, Vector3 start, Vector3 end, std::int32_t slot)
     {
+        if (!MatchAllowsRails())
+        {
+            return;
+        }
+        if (g_stoppedAt.has_value())
+        {
+            // A delayed new-round start without a scene replacement must not
+            // resurrect frozen trails from the previous match.
+            g_rails.clear();
+            g_stoppedAt.reset();
+        }
         if (g_rails.size() >= MaxRails)
         {
             g_rails.erase(g_rails.begin());
@@ -299,14 +334,30 @@ namespace MphRead::Mods::Render
 
     void InstagibRails::AddRenderItems(Scene& scene)
     {
+        const double now = Now();
+        if (!MatchAllowsRails())
+        {
+            // Match-ending time stop: preserve each existing ribbon at its
+            // final age, opacity and helix angle for the results picture.
+            if (!g_stoppedAt.has_value())
+            {
+                g_stoppedAt = now;
+            }
+        }
+        else if (g_stoppedAt.has_value())
+        {
+            // An interrupted results screen can return to play without
+            // replacing the scene; don't carry last round's frozen shots.
+            g_rails.clear();
+            g_stoppedAt.reset();
+        }
         if (g_rails.empty())
         {
             return;
         }
-        const double now = Now();
         g_rails.erase(std::remove_if(g_rails.begin(), g_rails.end(), [&](const Rail& rail)
         {
-            return rail.Scene != &scene || (!g_demo && now - rail.Born >= LifeSeconds);
+            return rail.Scene != &scene || (!g_demo && AgeAt(rail.Born, now, g_stoppedAt) >= LifeSeconds);
         }), g_rails.end());
         if (g_rails.empty() || !PrepareTexture(scene))
         {
@@ -314,7 +365,22 @@ namespace MphRead::Mods::Render
         }
         for (const Rail& rail : g_rails)
         {
-            Draw(scene, rail, g_demo ? g_demoAge : static_cast<float>((now - rail.Born) / LifeSeconds));
+            Draw(scene, rail, g_demo ? g_demoAge
+                : static_cast<float>(AgeAt(rail.Born, now, g_stoppedAt) / LifeSeconds));
+        }
+    }
+
+    void InstagibRails::ForgetScene(const Scene& scene) noexcept
+    {
+        g_rails.erase(std::remove_if(g_rails.begin(), g_rails.end(),
+            [&scene](const Rail& rail) { return rail.Scene == &scene; }), g_rails.end());
+        if (g_texture.Scene == &scene)
+        {
+            g_texture = TrailTexture{};
+        }
+        if (g_rails.empty())
+        {
+            g_stoppedAt.reset();
         }
     }
 
@@ -322,6 +388,7 @@ namespace MphRead::Mods::Render
     {
         g_rails.clear();
         g_texture = TrailTexture{};
+        g_stoppedAt.reset();
     }
 
     void InstagibRails::DemoMode(bool on) noexcept { g_demo = on; }

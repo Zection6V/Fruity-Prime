@@ -76,6 +76,7 @@ int main()
         "rotation advances match identity and clears the ended timestamp");
     passed &= Check(snapshots.CanAcceptIncoming(1),
         "rotation resets the incoming snapshot sequence for the new map");
+    passed &= Check(!snapshots.HasLatest(), "rotation discards the previous match snapshot");
     passed &= Check(slots.Generation(0) == 1 && slots.Life(0) == 0,
         "rotation preserves occupant generation and resets per-map lives");
     for (std::int32_t slot = 0; slot < 3; ++slot)

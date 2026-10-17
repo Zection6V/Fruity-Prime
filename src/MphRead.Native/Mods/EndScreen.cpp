@@ -102,6 +102,10 @@ namespace MphRead::Mods
 
     std::string EndScreen::NextRoomKey()
     {
+        if (!Network::NetSession::Active())
+        {
+            return MapPick::NextRoom();
+        }
         std::optional<Network::MatchStatePacket> state = Network::NetSession::ServerMatch();
         if (!state.has_value())
         {

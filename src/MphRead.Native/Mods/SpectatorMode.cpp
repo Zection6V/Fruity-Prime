@@ -1,6 +1,7 @@
 #include "SpectatorMode.hpp"
 
 #include "../Entities/Players/PlayerEntity.hpp"
+#include "../Entities/CamSeq/CameraSequence.hpp"
 #include "../GameState.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
@@ -195,6 +196,20 @@ namespace MphRead::Mods
         if (_isSpectating || !CanSpectate())
         {
             return;
+        }
+
+        // Demo playback takes over the camera during an already-running match.
+        // The multiplayer intro loops indefinitely until explicitly ended,
+        // and its IsIntro() HUD draws "LAWS OF BATTLE" over every view.
+        // End it before switching MainPlayerIndex: End() restores the camera
+        // bound to the intro, which may differ from the new spectator target.
+        if (Formats::CameraSequence* intro = Formats::CameraSequence::Current();
+            intro != nullptr && SpectatorCameraPolicy::EndIntroForPlayback(
+                Network::NetSession::IsPlayback(),
+                GameState::MatchState() == MatchState::InProgress,
+                intro->IsIntro()))
+        {
+            intro->End();
         }
 
         const std::int32_t origin = SelectionOrigin();

@@ -122,6 +122,12 @@ int main()
         && !PlayerCombatPolicy::IsAliveAndSpawned(true, true, 0),
         "a rejoin request requires an active spawned player with health");
 
+    passed &= Check(SpectatorCameraPolicy::EndIntroForPlayback(true, true, true)
+        && !SpectatorCameraPolicy::EndIntroForPlayback(false, true, true)
+        && !SpectatorCameraPolicy::EndIntroForPlayback(true, false, true)
+        && !SpectatorCameraPolicy::EndIntroForPlayback(true, true, false),
+        "a playback spectator ends only an active gameplay intro, never live or results cameras");
+
     passed &= Check(SpectatorCameraPolicy::RetryPlaybackFollow(true, true, false)
         && !SpectatorCameraPolicy::RetryPlaybackFollow(true, true, true)
         && !SpectatorCameraPolicy::RetryPlaybackFollow(true, false, false)

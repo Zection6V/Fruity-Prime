@@ -2,6 +2,7 @@
 #include "Mods/Network/Gameplay/Weapons/ShotEventEligibility.hpp"
 #include "Mods/SpectatorCameraPolicy.hpp"
 #include "Mods/SpectatorTargetPolicy.hpp"
+#include "Mods/Network/Gameplay/Player/RemoteShotConfirmation.hpp"
 
 #include <array>
 #include <iostream>
@@ -79,6 +80,12 @@ int main()
         "previous-target search wraps past the current slot");
     passed &= Check(SpectatorTargetPolicy::Find(onlyCurrent, 1, 0, true, false) == -1,
         "search does not reselect its only current target");
+    passed &= Check(SpectatorTargetPolicy::Find(onlyCurrent, 1, -1, true, true, true) == 1
+        && SpectatorTargetPolicy::Find(onlyCurrent, 1, -1, true, false, true) == 1,
+        "a one-actor demo can switch from free camera to that actor in either direction");
+    passed &= Check(SpectatorTargetPolicy::Find(onlyCurrent, 1, -1, true, true) == -1
+        && SpectatorTargetPolicy::Find(onlyCurrent, 1, 1, true, true, true) == -1,
+        "ordinary spectator cycles cannot self-select or follow the live local slot");
     passed &= Check(SpectatorTargetPolicy::Find(slots, -1, 0, true, true) == 1,
         "negative next-search origins normalize safely");
     passed &= Check(SpectatorTargetPolicy::Find(slots, 99, 0, true, false) == 3,
@@ -120,6 +127,11 @@ int main()
         && SpectatorCameraPolicy::CanFollowPlayer(true, true, true, true)
         && SpectatorCameraPolicy::CanFollowPlayer(false, true, false, false),
         "player-camera follow requires a current target while spectating");
+    passed &= Check(Network::RemoteShotConfirmation::CanConfirmAsObserver(-1, true)
+        && Network::RemoteShotConfirmation::CanConfirmAsObserver(0, false)
+        && !Network::RemoteShotConfirmation::CanConfirmAsObserver(-1, false),
+        "recorded damage may confirm remote impacts without a local player, unlike a live unassigned client");
+
     passed &= Check(SpectatorCameraPolicy::CanBorrowLocalPose(true, false, true, true)
         && !SpectatorCameraPolicy::CanBorrowLocalPose(true, true, true, true)
         && !SpectatorCameraPolicy::CanBorrowLocalPose(false, false, true, true),

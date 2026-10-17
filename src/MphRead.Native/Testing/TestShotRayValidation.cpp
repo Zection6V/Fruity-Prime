@@ -42,6 +42,20 @@ int main()
     passed &= Check(!event.HasRay(), "the lower direction boundary remains exclusive");
 
     const Vector3 shooterPosition(10.0F, 20.0F, 30.0F);
+    const Vector3 historicalMuzzle(-3.0F, 20.0F, 30.0F);
+    const Vector3 recordedDirection(0.0F, 0.0F, -1.0F);
+    passed &= Check(MphRead::Mods::Network::ShotRayValidation::IsRecordedRay(
+        historicalMuzzle, recordedDirection)
+        && !MphRead::Mods::Network::ShotRayValidation::IsPlausibleRay(
+            historicalMuzzle, recordedDirection, shooterPosition),
+        "a moving shooter's historical demo ray is valid even outside a live pose's muzzle bound");
+    passed &= Check(!MphRead::Mods::Network::ShotRayValidation::IsRecordedRay(
+        Vector3(std::numeric_limits<float>::quiet_NaN(), 0.0F, 0.0F), recordedDirection)
+        && !MphRead::Mods::Network::ShotRayValidation::IsRecordedRay(
+            historicalMuzzle, Vector3(std::numeric_limits<float>::infinity(), 0.0F, 0.0F))
+        && !MphRead::Mods::Network::ShotRayValidation::IsRecordedRay(
+            historicalMuzzle, Vector3(0.0F, 0.0F, 0.0F)),
+        "demo rays still reject non-finite origins and invalid directions");
     passed &= Check(MphRead::Mods::Network::ShotRayValidation::IsPlausibleOrigin(
         Vector3(16.0F, 20.0F, 30.0F), shooterPosition),
         "a shot origin at the maximum muzzle offset is plausible");

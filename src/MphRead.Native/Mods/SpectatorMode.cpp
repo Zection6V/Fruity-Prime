@@ -456,13 +456,15 @@ namespace MphRead::Mods
     {
         const auto snapshots = CaptureSlots(Network::NetSession::Active());
         return SpectatorTargetPolicy::Find(snapshots, fromSlot,
-            Network::NetHooks::LocalSlot(), Network::NetSession::Active(), false);
+            Network::NetHooks::LocalSlot(), Network::NetSession::Active(), false,
+            Network::NetSession::IsPlayback());
     }
 
     std::int32_t SpectatorMode::FindNextActiveSlot(std::int32_t fromSlot)
     {
         const auto snapshots = CaptureSlots(Network::NetSession::Active());
         return SpectatorTargetPolicy::Find(snapshots, fromSlot,
-            Network::NetHooks::LocalSlot(), Network::NetSession::Active(), true);
+            Network::NetHooks::LocalSlot(), Network::NetSession::Active(), true,
+            Network::NetSession::IsPlayback());
     }
 }

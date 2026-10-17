@@ -301,8 +301,13 @@ namespace MphRead::Mods::Network
         else
         {
             validation.ShooterValid = true;
-            validation.RayValid = ShotRayValidation::IsPlausibleRay(
-                event->Origin, event->Direction, currentPosition, MaxRayOffset);
+            // A playback shot was recorded at its actual firing position,
+            // which may be far from the currently smoothed actor's position.
+            // Live clients retain their proximity check against spoofed rays.
+            validation.RayValid = NetSession::IsPlayback()
+                ? ShotRayValidation::IsRecordedRay(event->Origin, event->Direction)
+                : ShotRayValidation::IsPlausibleRay(
+                    event->Origin, event->Direction, currentPosition, MaxRayOffset);
         }
         NetShotDiagnostics::TraceRayValidation(authority ? "remote-ray-validation" : "remote-ray-visual",
             ShotKey::For(slot, event->AckFrame), static_cast<::MphRead::BeamType>(event->WeaponId),

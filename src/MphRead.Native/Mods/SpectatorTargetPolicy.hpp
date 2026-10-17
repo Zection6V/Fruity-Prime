@@ -50,7 +50,8 @@ namespace MphRead::Mods
         }
 
         [[nodiscard]] static std::int32_t Find(std::span<const SpectatorSlotSnapshot> candidates,
-            std::int32_t fromSlot, std::int32_t localSlot, bool networked, bool forward) noexcept
+            std::int32_t fromSlot, std::int32_t localSlot, bool networked, bool forward,
+            bool allowOrigin = false) noexcept
         {
             if (candidates.empty())
             {
@@ -72,7 +73,9 @@ namespace MphRead::Mods
                 {
                     index += count;
                 }
-                if (hasOrigin && index == origin)
+                // With only one actor in a demo, a full cycle must be allowed
+                // to return to the starting slot. Live spectators keep the old rule.
+                if (hasOrigin && index == origin && !allowOrigin)
                 {
                     continue;
                 }

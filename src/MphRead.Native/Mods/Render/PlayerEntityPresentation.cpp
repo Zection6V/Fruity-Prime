@@ -6,9 +6,11 @@
 #include "../Network/Session/NetSession.hpp"
 #include "../../Formats/Effects.hpp"
 #include "AnimationBlend.hpp"
+#include "AnimationClock.hpp"
 #include "EffectPlacement.hpp"
 #include "MotionCarry.hpp"
 #include "ScenePresentation.hpp"
+#include <algorithm>
 
 namespace MphRead::Entities
 {
@@ -33,15 +35,12 @@ namespace MphRead::Entities
             now.M42 = Position.Y;
             now.M43 = Position.Z;
         }
-        const bool hadPrevious = pose.HasPrevious;
         pose.HasPrevious = pose.Step + 1 == step;
-        pose.HasEarlier = pose.HasPrevious && hadPrevious;
         pose.SameForm = pose.HasPrevious && pose.AltForm == alt;
         pose.Previous = pose.Current;
         pose.Current = now;
         pose.PreviousSegments = pose.CurrentSegments;
         pose.CurrentSegments = _kandenSegMtx;
-        pose.EarlierEye = pose.PreviousEye;
         pose.PreviousEye = pose.CurrentEye;
         pose.PreviousTarget = pose.CurrentTarget;
         if (_cameraInfo != nullptr)
@@ -55,6 +54,24 @@ namespace MphRead::Entities
                 pose.ShakeTo = pose.CurrentShake;
                 pose.ShakeStep = step;
             }
+        }
+        if (_cameraInfo != nullptr)
+        {
+            // The trailing camera's place against the body, a step at a time.
+            // A form or camera that changed moved what the camera is held
+            // against (the body's point drops as a morph ends), not the
+            // camera: what came before is no history of it.
+            const auto cameraType = static_cast<std::int32_t>(_cameraType);
+            if (!pose.SameForm || cameraType != pose.TrailCamera) pose.TrailSteps = 0;
+            pose.TrailCamera = cameraType;
+            std::rotate(pose.TrailEye.begin(), pose.TrailEye.begin() + 1, pose.TrailEye.end());
+            // A replica's camera was built where the body was before the
+            // snapshot moved it (ModNoteCameraSource).
+            const auto& source = _modCameraSource;
+            const Vector3 from = source.Valid && source.Step == Mods::Render::AnimationClock::Simulation().TickTime()
+                ? source.Position : static_cast<Vector3>(Position);
+            pose.TrailEye.back() = pose.CurrentEye - from;
+            pose.TrailSteps = std::min<std::int32_t>(pose.TrailSteps + 1, static_cast<std::int32_t>(pose.TrailEye.size()));
         }
         pose.AltForm = alt;
         pose.Step = step;
@@ -76,7 +93,7 @@ namespace MphRead::Entities
         const Vector3 motion = Mods::Network::NetSmoothing::Active() && SlotIndex() != Mods::Network::NetSession::LocalSlot()
             ? Mods::Network::NetSmoothing::AheadShift(SlotIndex(), 1.0)
             : at - PrevPosition();
-        if (motion.LengthSquared() > Mods::Render::MotionCarry::JumpDistance * Mods::Render::MotionCarry::JumpDistance)
+        if (!Mods::Render::MotionCarry::Within(motion))
         {
             return;
         }
@@ -114,12 +131,31 @@ namespace MphRead::Entities
         return _hunter == Hunter::Kanden && IsAltForm() && _modPose.AltForm;
     }
 
+    std::optional<Vector3> PlayerEntity::ModTrailShift() const
+    {
+        // A ball's camera, or any that trails, held off a wall fights it
+        // (PlayerEntity::UpdateCameraThird1, the ROM's own pull-in and slide,
+        // run at 60 Hz): to and fro every step, or snapped in and easing out
+        // again. Carried on along each step, the swing was drawn twice over
+        // and a snap dove through the body and back; against the body, it
+        // moves as MotionCarry::Trail reads its last steps.
+        const Mods::Render::PlayerPoseHistory& pose = _modPose;
+        if ((_cameraType == CameraType::First && !IsAltForm())
+            || pose.Step != Mods::Render::ScenePresentation::CurrentStep()
+            || pose.TrailSteps != static_cast<std::int32_t>(pose.TrailEye.size()))
+        {
+            return std::nullopt;
+        }
+        return Mods::Render::MotionCarry::Trail(pose.TrailEye, Mods::Render::ScenePresentation::ShownPhase())
+            - pose.TrailEye.back();
+    }
+
     std::optional<Matrix4> PlayerEntity::ModPresentationCarry() const
     {
         if (ModCarriesKandenSegments()) return std::nullopt;
         const Mods::Render::PlayerPoseHistory& pose = _modPose;
         const bool moving = ModPresentationMoving();
-        const float phase = moving ? static_cast<float>(Mods::Render::ScenePresentation::Phase()) : 0.0F;
+        const float phase = moving ? Mods::Render::ScenePresentation::ShownPhase() : 0.0F;
         // A ball's roll, Noxus's spin and tilt are turned by the game every
         // step, but they are what the Animation setting is about on a ball:
         // they are shown on its grid (30 Hz holds each for two steps, back to

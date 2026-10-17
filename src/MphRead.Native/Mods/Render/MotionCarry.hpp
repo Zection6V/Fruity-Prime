@@ -2,6 +2,7 @@
 
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
+#include <array>
 #include <optional>
 
 namespace MphRead
@@ -25,6 +26,11 @@ namespace MphRead::Mods::Render
         // teleporter, a respawn, a jump pad's launch frame, a pooled entity
         // starting a new life -- and is never slid across.
         static constexpr float JumpDistance = 4.0F;
+        // A step's shift short of a jump: motion that may be carried.
+        [[nodiscard]] static bool Within(OpenTK::Mathematics::Vector3 shift) noexcept
+        {
+            return shift.LengthSquared() < JumpDistance * JumpDistance;
+        }
         // A turn this large in one step is not carried either.
         static constexpr float MaxTurnDegrees = 90.0F;
 
@@ -57,15 +63,18 @@ namespace MphRead::Mods::Render
         // and what it is locked on, each end where the picture has it.
         [[nodiscard]] static OpenTK::Mathematics::Matrix4 Span(OpenTK::Mathematics::Vector3 fromA,
             OpenTK::Mathematics::Vector3 fromB, OpenTK::Mathematics::Vector3 toA, OpenTK::Mathematics::Vector3 toB);
-        // A point the last three steps put at `earlier`, `previous` and
-        // `current`, shown `fraction` of a step on, with any swing that turns
-        // back every step taken out: `current` less a quarter of the steps'
-        // second difference, moving on at their mean rate. A steady motion is
-        // shown exactly where the carry shows it; a point going to and fro
-        // from step to step (a ball's camera against a wall) is shown at the
-        // middle of its swing, moving on as the swing does.
-        [[nodiscard]] static OpenTK::Mathematics::Vector3 Settled(OpenTK::Mathematics::Vector3 earlier,
-            OpenTK::Mathematics::Vector3 previous, OpenTK::Mathematics::Vector3 current, float fraction) noexcept;
+        // A camera that trails a body, where the last four steps put it
+        // against that body (`steps`, oldest first), shown `fraction` of a
+        // step on -- axis by axis, since a camera held off a wall moves on
+        // one axis while it fights the wall on another:
+        //  - going to and fro every step, at the middle of its swing, moving
+        //    on as the swing does;
+        //  - moving steadily, on by the smaller of its last two steps;
+        //  - turning back or changing pace sharply (snapped in off a wall,
+        //    then easing out), not carried: on past a snap, the picture dove
+        //    through the body and came back.
+        [[nodiscard]] static OpenTK::Mathematics::Vector3 Trail(
+            const std::array<OpenTK::Mathematics::Vector3, 4>& steps, float fraction) noexcept;
         // A translation alone, when there is one worth carrying.
         [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> By(OpenTK::Mathematics::Vector3 shift);
 

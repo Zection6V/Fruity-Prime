@@ -53,6 +53,9 @@ namespace MphRead::Mods::Render
         static void ForcePhase(std::optional<double> phase) noexcept;
         // The last step moved the world and this picture is past it.
         [[nodiscard]] static bool Moving() noexcept;
+        // How far on from its step a picture shows what moved: Phase while
+        // Moving, nothing on the step's own instant.
+        [[nodiscard]] static float ShownPhase() noexcept;
 
         // An entity's drawn items, carried on from its last step.
         [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> EntityCarry(

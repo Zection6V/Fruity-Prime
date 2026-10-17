@@ -164,10 +164,15 @@ namespace MphRead::Mods::Network
         static void SetShowWindow(bool value) noexcept;
         static void SetAiLevel(std::optional<std::int32_t> value) noexcept;
         static void SetHeadless(bool value) noexcept;
+        // -drawrate N: N pictures a step, the extra ones at forced instants
+        // between steps, as a screen faster than 60 Hz draws -- what checks
+        // anything presented between steps (MapAudit's -drawrate, here).
+        static void SetDrawRate(std::int32_t value) noexcept { DrawRate = value < 1 ? 1 : value; }
 
     private:
         inline static std::int32_t MapVoteRow = -1;
         inline static bool ShowWindow = false;
+        inline static std::int32_t DrawRate = 1;
         // -ai [LEVEL]: the game's own AI plays this client's player, in place
         // of the scripted tour -- a fighting opponent on a real line.
         inline static std::optional<std::int32_t> AiLevel{};

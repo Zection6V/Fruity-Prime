@@ -22,8 +22,22 @@ public:                                                                         
     /* A watched replica, as the snapshot moves it: what its step's camera was built from. */ \
     void ModNoteCameraSource();                                                                \
     /* Once a frame, after its steps: show this watched player's camera moved by the       */  \
-    /* playout since its step built it, and turned to the facing applied since.           */   \
-    [[nodiscard]] bool ModPresentWatchedView(::OpenTK::Mathematics::Vector3 playoutShift);     \
+    /* playout since its step built it (a replica), or carried on from its step as the    */  \
+    /* own view is (simulated here: no playout shift).                                    */   \
+    /* Once a frame, after its steps: the death camera, once flown, where the next step   */  \
+    /* puts it for the keys held and the mouse moved so far (FreeCameraFlight).           */   \
+    [[nodiscard]] bool ModPresentDeathCamera(                                                  \
+        const ::OpenTK::Windowing::GraphicsLibraryFramework::MouseState& live,                 \
+        const ::OpenTK::Windowing::GraphicsLibraryFramework::KeyboardState& keyboard);         \
+    [[nodiscard]] bool ModPresentWatchedView(                                                  \
+        std::optional<::OpenTK::Mathematics::Vector3> playoutShift);                           \
+    /* The step's camera carried on to this picture's instant, its sight line along the   */  \
+    /* step's turn when asked; false when no step motion can be carried.                  */   \
+    [[nodiscard]] bool ModCarryStepCamera(bool turnWithStep);                                  \
+    /* The camera moved by `eye`, its sight line by `turn`, and the step's hit shake       */  \
+    /* eased; false when nothing changes.                                                 */   \
+    [[nodiscard]] bool ModPresentCamera(::OpenTK::Mathematics::Vector3 eye,                    \
+        ::OpenTK::Mathematics::Vector3 turn);                                                  \
     /* Once the picture is drawn: the step's own aim back (FrameAimPresentation). */          \
     void ModRestoreFrameAim();                                                                 \
     /* The hit shake this picture applies to its finished view, if any. */                   \
@@ -40,7 +54,7 @@ private:                                                                        
     void ModSaveFrameView();                                                                   \
     /* The camera moved by `eye` and its sight line by `turn`, the gun riding with it. */     \
     void ModCarryCamera(::OpenTK::Mathematics::Vector3 eye, ::OpenTK::Mathematics::Vector3 turn); \
-    /* The muzzle and charge effects where the gun is, drawn there at once. */                \
+    /* The muzzle, charge and double damage effects where the gun is, drawn there at once. */ \
     void ModPlaceGunEffects();                                                                 \
     /* The idle sway's step, shared curve, and draw-only camera presentation. */              \
     void ModUpdateIdleSway();                                                                  \

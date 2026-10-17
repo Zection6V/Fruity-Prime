@@ -862,6 +862,8 @@ namespace MphRead::Entities
                     RequireReference(scene.Layer3Info()).ShiftX = -_hudShiftX / 4.0F / 256.0F;
                     RequireReference(scene.Layer3Info()).ShiftY = -_hudShiftY / 4.0F / 192.0F;
                 }
+                // Mod hook: the reticle of the weapon in hand (Mods/Render/PlayerEntityPresentation).
+                ModSyncReticle();
                 if (Features::NoIdleSway() || _timeSinceInput < static_cast<std::uint64_t>(Values().GunIdleTime) * 2ULL)
                 {
                     UpdateReticle();

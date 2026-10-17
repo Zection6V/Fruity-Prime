@@ -5,8 +5,12 @@
 #include "../Network/Gameplay/Replication/NetSmoothing.hpp"
 #include "../Network/Session/NetSession.hpp"
 #include "../../Formats/Effects.hpp"
+#include "AnimationBlend.hpp"
+#include "AnimationClock.hpp"
+#include "EffectPlacement.hpp"
 #include "MotionCarry.hpp"
 #include "ScenePresentation.hpp"
+#include <algorithm>
 
 namespace MphRead::Entities
 {
@@ -51,6 +55,24 @@ namespace MphRead::Entities
                 pose.ShakeStep = step;
             }
         }
+        if (_cameraInfo != nullptr)
+        {
+            // The trailing camera's place against the body, a step at a time.
+            // A form or camera that changed moved what the camera is held
+            // against (the body's point drops as a morph ends), not the
+            // camera: what came before is no history of it.
+            const auto cameraType = static_cast<std::int32_t>(_cameraType);
+            if (!pose.SameForm || cameraType != pose.TrailCamera) pose.TrailSteps = 0;
+            pose.TrailCamera = cameraType;
+            std::rotate(pose.TrailEye.begin(), pose.TrailEye.begin() + 1, pose.TrailEye.end());
+            // A replica's camera was built where the body was before the
+            // snapshot moved it (ModNoteCameraSource).
+            const auto& source = _modCameraSource;
+            const Vector3 from = source.Valid && source.Step == Mods::Render::AnimationClock::Simulation().TickTime()
+                ? source.Position : static_cast<Vector3>(Position);
+            pose.TrailEye.back() = pose.CurrentEye - from;
+            pose.TrailSteps = std::min<std::int32_t>(pose.TrailSteps + 1, static_cast<std::int32_t>(pose.TrailEye.size()));
+        }
         pose.AltForm = alt;
         pose.Step = step;
         ModLookAheadKandenSegments();
@@ -71,7 +93,7 @@ namespace MphRead::Entities
         const Vector3 motion = Mods::Network::NetSmoothing::Active() && SlotIndex() != Mods::Network::NetSession::LocalSlot()
             ? Mods::Network::NetSmoothing::AheadShift(SlotIndex(), 1.0)
             : at - PrevPosition();
-        if (motion.LengthSquared() > Mods::Render::MotionCarry::JumpDistance * Mods::Render::MotionCarry::JumpDistance)
+        if (!Mods::Render::MotionCarry::Within(motion))
         {
             return;
         }
@@ -109,16 +131,52 @@ namespace MphRead::Entities
         return _hunter == Hunter::Kanden && IsAltForm() && _modPose.AltForm;
     }
 
+    std::optional<Vector3> PlayerEntity::ModTrailShift() const
+    {
+        // A ball's camera, or any that trails, held off a wall fights it
+        // (PlayerEntity::UpdateCameraThird1, the ROM's own pull-in and slide,
+        // run at 60 Hz): to and fro every step, or snapped in and easing out
+        // again. Carried on along each step, the swing was drawn twice over
+        // and a snap dove through the body and back; against the body, it
+        // moves as MotionCarry::Trail reads its last steps. The death camera
+        // trails nothing: flown by its player, it is carried on along its
+        // step like any other motion -- read as a wall fight, every start
+        // and turn of it was held a step under a sight line swung on ahead.
+        const Mods::Render::PlayerPoseHistory& pose = _modPose;
+        if ((_cameraType == CameraType::First && !IsAltForm()) || _cameraType == CameraType::Free
+            || pose.Step != Mods::Render::ScenePresentation::CurrentStep()
+            || pose.TrailSteps != static_cast<std::int32_t>(pose.TrailEye.size()))
+        {
+            return std::nullopt;
+        }
+        return Mods::Render::MotionCarry::Trail(pose.TrailEye, Mods::Render::ScenePresentation::ShownPhase())
+            - pose.TrailEye.back();
+    }
+
     std::optional<Matrix4> PlayerEntity::ModPresentationCarry() const
     {
-        if (!ModPresentationMoving() || ModCarriesKandenSegments()) return std::nullopt;
+        if (ModCarriesKandenSegments()) return std::nullopt;
         const Mods::Render::PlayerPoseHistory& pose = _modPose;
-        const float phase = static_cast<float>(Mods::Render::ScenePresentation::Phase());
-        const auto carried = Mods::Render::MotionCarry::Between(pose.Previous, pose.Current, phase);
+        const bool moving = ModPresentationMoving();
+        const float phase = moving ? Mods::Render::ScenePresentation::ShownPhase() : 0.0F;
+        // A ball's roll, Noxus's spin and tilt are turned by the game every
+        // step, but they are what the Animation setting is about on a ball:
+        // they are shown on its grid (30 Hz holds each for two steps, back to
+        // the previous step's turn on the second), while the ball itself moves
+        // on at the picture's instant like everything else.
+        float turn = phase;
+        const bool rolls = _hunter == Hunter::Samus || _hunter == Hunter::Spire || _hunter == Hunter::Noxus;
+        if (rolls && pose.AltForm && pose.SameForm && IsAltForm()
+            && pose.Step == Mods::Render::ScenePresentation::CurrentStep())
+        {
+            turn = static_cast<float>(Mods::Render::AnimationBlend::ShownStepFraction(pose.Step, phase));
+        }
+        if (!moving && !(turn < 0.0F)) return std::nullopt;
+        const auto carried = Mods::Render::MotionCarry::BetweenShown(pose.Previous, pose.Current, phase, turn);
         // A replica on a client is read off the playout, which holds what has
         // arrived past the step's read point: its position is no guess. The
         // turn it is drawn with is simulated here, and carried as any other.
-        if (Mods::Network::NetSmoothing::Active() && SlotIndex() != Mods::Network::NetSession::LocalSlot())
+        if (moving && Mods::Network::NetSmoothing::Active() && SlotIndex() != Mods::Network::NetSession::LocalSlot())
         {
             const Vector3 ahead = Mods::Network::NetSmoothing::AheadShift(SlotIndex(), phase);
             Matrix4 drawn = carried ? pose.Current * *carried : pose.Current;
@@ -149,13 +207,45 @@ namespace MphRead::Entities
         return std::pair{muzzle, aimed - muzzle};
     }
 
+    void PlayerEntity::ModSyncReticle()
+    {
+        // The reticle is set as a weapon is switched to, and only for the
+        // player whose HUD it is then (TryEquipWeapon, UpdateZoom). A player
+        // watched by a spectator switched while somebody else's HUD was up:
+        // the last HUD's reticle stayed -- the Imperialist's scope over a
+        // Power Beam, or the reverse. Set it again whenever it disagrees.
+        const bool sniper = _currentWeapon == BeamType::Imperialist;
+        if (_sniperReticle != sniper) HudOnWeaponSwitch(_currentWeapon);
+        const bool zoomed = sniper && RequireReference(_equipInfo).Zoomed;
+        if (_hudZoom != zoomed) HudOnZoom(zoomed);
+    }
+
+    Matrix4 PlayerEntity::ModTrailSegment(std::int32_t index, Matrix4 segment) const
+    {
+        // The newest segment, laid at the ball this step, is drawn at the
+        // ball this picture has; the rest stay where they were laid.
+        const std::int32_t head = (_mbTrailIndices[static_cast<std::size_t>(SlotIndex())] + _mbTrailSegments - 1) % _mbTrailSegments;
+        const Vector3 at(segment.M41, segment.M42, segment.M43);
+        if (index != head || !IsAltForm() || at.X != Position.X || at.Y != Position.Y || at.Z != Position.Z) return segment;
+        if (const auto carry = ModPresentationCarry())
+        {
+            const Vector3 shown = Mods::Render::MotionCarry::Point(at, *carry);
+            segment.M41 = shown.X;
+            segment.M42 = shown.Y;
+            segment.M43 = shown.Z;
+        }
+        return segment;
+    }
+
     Vector3 PlayerEntity::ModPresentedPoint(Vector3 point) const
     {
         if (!Mods::Render::ScenePresentation::Moving()) return point;
-        // A local or watched view carried its camera with the body
-        // (ModCarryCamera): the body is where that eye has gone.
+        // A local or watched view carried its first-person camera with the
+        // body (ModCarryCamera): the body is where that eye has gone. A
+        // trailing camera moves on its own (ModTrailShift), and the body as
+        // it is drawn.
         const Mods::Input::FrameAimView& view = _modFrameView;
-        if (view.Active && view.Camera && _cameraInfo != nullptr)
+        if (view.Active && view.Camera && _cameraInfo != nullptr && _cameraType == CameraType::First && !IsAltForm())
         {
             return point + (_cameraInfo->Position - view.CameraPosition);
         }
@@ -175,6 +265,32 @@ namespace MphRead::Entities
         if (!IsMainPlayer()) return;
         if (_muzzleEffect != nullptr) _muzzleEffect->SetDrawEnabled(gunDrawn);
         if (_chargeEffect != nullptr) _chargeEffect->SetDrawEnabled(gunDrawn);
+    }
+
+    void PlayerEntity::ModPlaceBodyEffectsDrawn()
+    {
+        // Process anchors these to the body at the step's pose. Between steps
+        // the body is drawn on -- carried by its motion, or a replica read off
+        // the playout at the picture's instant -- and an effect left at the
+        // step's pose trails the ball it belongs to, a boost by most of a step.
+        // Same anchors as Process, moved with the body this picture draws.
+        if (!Mods::Render::ScenePresentation::Moving()) return;
+        if (_boostEffect != nullptr && !_boostEffect->Elements->empty() && _boostEffect->Elements->front() != nullptr)
+        {
+            const Matrix4& own = _boostEffect->Elements->front()->OwnTransform;
+            const Vector3 from(own.M41, own.M42, own.M43);
+            const Vector3 to = ModPresentedPoint(static_cast<Vector3>(Position));
+            Mods::Render::BodyEffectDraws::Note(::OpenTK::Mathematics::Length(to - from));
+        }
+        const Vector3 body = ModPresentedPoint(static_cast<Vector3>(Position));
+        const Vector3 sphere = ModPresentedPoint(_volume.SpherePosition);
+        Mods::Render::PlaceEffect(_boostEffect, _gunVec2, _facingVector, body);
+        Mods::Render::PlaceEffect(_furlEffect, _gunVec2, _facingVector, body);
+        Mods::Render::PlaceEffect(_deathaltEffect, Vector3(0.0F, 1.0F, 0.0F), Vector3(1.0F, 0.0F, 0.0F), sphere);
+        if (!IsMainPlayer() || IsAltForm() || IsMorphing())
+        {
+            Mods::Render::PlaceEffect(_burnEffect, Vector3(_field70, 0.0F, _field74), Vector3(0.0F, 1.0F, 0.0F), sphere);
+        }
     }
 
     Matrix4 PlayerEntity::ModKandenSegmentDrawn(std::int32_t index) const

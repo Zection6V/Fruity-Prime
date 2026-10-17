@@ -53,6 +53,14 @@ namespace MphRead::Mods::Render
         [[nodiscard]] static std::int32_t Rate() noexcept;
         // Anything below DsRate but DisplayRate reads as DsRate.
         static void Rate(std::int32_t hz) noexcept;
+        // Where, in steps from `step` (the latest simulation step), a pose a
+        // picture `phase` of the way to the next step shows: at the display
+        // rate, `phase` itself; otherwise the latest instant on the rate's
+        // grid, so 30 Hz holds each pose for two steps (-1 on the second),
+        // 60 shows the step's own and 120 half a step on. For what the game
+        // turns every step but the setting calls animation: the morph ball's
+        // roll, Noxus's spin, the alt forms' tilt.
+        [[nodiscard]] static double ShownStepFraction(std::uint64_t step, double phase) noexcept;
         // "display", or the rate in Hz: launcher.txt and -animrate.
         [[nodiscard]] static std::string RateName(std::int32_t hz);
         [[nodiscard]] static std::optional<std::int32_t> ParseRate(std::string_view text) noexcept;

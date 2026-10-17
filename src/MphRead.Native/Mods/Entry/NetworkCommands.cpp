@@ -225,6 +225,12 @@ namespace MphRead::Mods::Entry
                 Network::NetCheckClient::SetAiLevel(aiLevel);
             }
             Network::NetCheckClient::SetHeadless(HasFlag(args, "headless") && !showHudWindow);
+            if (const std::optional<std::string> value = ValueAfter(args, "drawrate"); value.has_value())
+            {
+                std::int32_t drawRate = 1;
+                static_cast<void>(Int32TryParseCurrentCulture(*value, drawRate));
+                Network::NetCheckClient::SetDrawRate(drawRate);
+            }
             const std::optional<std::string> mapVote = ValueAfter(args, "mapvote");
             std::int32_t mapVoteRow = -1;
             if (mapVote.has_value() && Int32TryParseCurrentCulture(*mapVote, mapVoteRow))

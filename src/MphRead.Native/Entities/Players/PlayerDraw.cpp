@@ -417,6 +417,8 @@ namespace MphRead::Entities
         }
         // Mod hook: your own gun's effects only with your gun (Mods/Render/PlayerEntityPresentation).
         ModGunEffectsDrawn(modFirstPersonGun);
+        // Mod hook: boost/furl/Death Alt/burn on the body as drawn (Mods/Render/PlayerEntityPresentation).
+        ModPlaceBodyEffectsDrawn();
         if (GameState::SinglePlayer() && IsMainPlayer() && _deathCountdown > 0.0F
             && _deathCountdown <= 119.0F / 30.0F)
         {
@@ -698,7 +700,8 @@ namespace MphRead::Entities
         std::vector<float> matrixStack(static_cast<std::size_t>(16 * _mbTrailSegments));
         for (std::int32_t i = 0; i < _mbTrailSegments; ++i)
         {
-            const Matrix4 matrix = ManagedAt(ManagedAt(_mbTrailMatrices, SlotIndex()), i);
+            // Mod hook: the head on the ball this picture has (Mods/Render/PlayerEntityPresentation).
+            const Matrix4 matrix = ModTrailSegment(i, ManagedAt(ManagedAt(_mbTrailMatrices, SlotIndex()), i));
             const std::size_t offset = static_cast<std::size_t>(i) * 16U;
             matrixStack[offset] = matrix.M11; matrixStack[offset + 1U] = matrix.M12;
             matrixStack[offset + 2U] = matrix.M13; matrixStack[offset + 3U] = matrix.M14;

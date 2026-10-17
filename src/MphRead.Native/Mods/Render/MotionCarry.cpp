@@ -79,14 +79,20 @@ namespace MphRead::Mods::Render
         float fraction)
     {
         if (!(fraction > 0.0F)) return std::nullopt;
+        return AlongSplit(from, start, end, fraction, fraction);
+    }
+
+    std::optional<Matrix4> MotionCarry::AlongSplit(const Matrix4& from, const Matrix4& start, const Matrix4& end,
+        float move, float turnFraction)
+    {
         const Vector3 moved = Vector3(end.M41, end.M42, end.M43) - Vector3(start.M41, start.M42, start.M43);
-        if (moved.LengthSquared() > JumpDistance * JumpDistance) return std::nullopt;
+        if (!Within(moved)) return std::nullopt;
         // The motion's turn, D with end = start * D, a fraction of it on `from`.
         Matrix4 turned = Rotation(from);
         const Matrix4 turn = OpenTK::Mathematics::Inverted(Rotation(start)) * Rotation(end);
         if (IsRotation(turn))
         {
-            if (const auto part = Power(turn, fraction)) turned = turned * *part;
+            if (const auto part = Power(turn, turnFraction)) turned = turned * *part;
         }
         // Rotation and Inverted work on the upper 3x3; the carry keeps the
         // pose's scale and other columns as they were.
@@ -94,9 +100,9 @@ namespace MphRead::Mods::Render
         drawn.M11 = turned.M11; drawn.M12 = turned.M12; drawn.M13 = turned.M13;
         drawn.M21 = turned.M21; drawn.M22 = turned.M22; drawn.M23 = turned.M23;
         drawn.M31 = turned.M31; drawn.M32 = turned.M32; drawn.M33 = turned.M33;
-        drawn.M41 = from.M41 + moved.X * fraction;
-        drawn.M42 = from.M42 + moved.Y * fraction;
-        drawn.M43 = from.M43 + moved.Z * fraction;
+        drawn.M41 = from.M41 + moved.X * move;
+        drawn.M42 = from.M42 + moved.Y * move;
+        drawn.M43 = from.M43 + moved.Z * move;
         const Matrix4 carry = OpenTK::Mathematics::Inverted(from) * drawn;
         if (NearIdentity(carry)) return std::nullopt;
         return carry;
@@ -105,6 +111,12 @@ namespace MphRead::Mods::Render
     std::optional<Matrix4> MotionCarry::Between(const Matrix4& previous, const Matrix4& current, float fraction)
     {
         return Along(current, previous, current, fraction);
+    }
+
+    std::optional<Matrix4> MotionCarry::BetweenShown(const Matrix4& previous, const Matrix4& current,
+        float move, float turnFraction)
+    {
+        return AlongSplit(current, previous, current, move > 0.0F ? move : 0.0F, turnFraction);
     }
 
     std::optional<Matrix4> MotionCarry::Toward(const Matrix4& current, const Matrix4& next, float fraction)
@@ -149,9 +161,36 @@ namespace MphRead::Mods::Render
             * scale * OpenTK::Mathematics::CreateTranslation(toA);
     }
 
+    Vector3 MotionCarry::Trail(const std::array<Vector3, 4>& steps, float fraction) noexcept
+    {
+        // A pace more than this many times the last one's is a change, not a motion.
+        constexpr float SharpChange = 1.5F;
+        constexpr float Still = 1.0F / 1024.0F;
+        Vector3 shown = steps[3];
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const auto at = [&](std::size_t i) { return (&steps[i].X)[axis]; };
+            const float d0 = at(1) - at(0), d1 = at(2) - at(1), d2 = at(3) - at(2);
+            float& out = (&shown.X)[axis];
+            const float larger = std::max({std::abs(d0), std::abs(d1), std::abs(d2)});
+            const float smaller = std::min({std::abs(d0), std::abs(d1), std::abs(d2)});
+            if (d0 * d1 < 0 && d1 * d2 < 0 && std::abs(d2) > Still && larger < 2.0F * smaller)
+            {
+                // p(n) = v n + a (-1)^n: the second difference is 4a (-1)^n,
+                // and the mean rate over the last two steps is v exactly.
+                out = at(3) - (at(3) - 2.0F * at(2) + at(1)) * 0.25F + (at(3) - at(1)) * 0.5F * fraction;
+            }
+            else if (d1 * d2 > 0 && std::max(std::abs(d1), std::abs(d2)) <= SharpChange * std::min(std::abs(d1), std::abs(d2)))
+            {
+                out = at(3) + (std::abs(d1) < std::abs(d2) ? d1 : d2) * fraction;
+            }
+        }
+        return shown;
+    }
+
     std::optional<Matrix4> MotionCarry::By(Vector3 shift)
     {
-        if (shift.LengthSquared() <= 0.0F || shift.LengthSquared() > JumpDistance * JumpDistance) return std::nullopt;
+        if (shift.LengthSquared() <= 0.0F || !Within(shift)) return std::nullopt;
         return OpenTK::Mathematics::CreateTranslation(shift);
     }
 
@@ -162,9 +201,15 @@ namespace MphRead::Mods::Render
 
     void MotionCarry::Apply(RenderItem& item, const Matrix4& carry)
     {
+        Apply(item, [&carry](const Matrix4&) -> const Matrix4& { return carry; });
+    }
+
+    void MotionCarry::Apply(RenderItem& item, const std::function<const Matrix4&(const Matrix4& drawn)>& carryFor)
+    {
         const bool billboard = item.BillboardMode != BillboardMode::None;
         const auto move = [&](Matrix4& matrix)
         {
+            const Matrix4& carry = carryFor(matrix);
             if (billboard)
             {
                 const Vector3 at = Point(Vector3(matrix.M41, matrix.M42, matrix.M43), carry);

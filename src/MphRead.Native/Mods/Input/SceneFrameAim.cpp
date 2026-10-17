@@ -47,14 +47,17 @@ namespace MphRead
         if (Mods::Headless::Active()) return {};
         if (Mods::SpectatorMode::IsSpectating())
         {
-            // The watched player, at this picture's instant on the playout
-            // clock: never past what has arrived, so nothing is guessed, and
-            // nothing held back either.
-            const auto target = Mods::SpectatorMode::CanUsePlayerCamera() && Mods::Network::NetSmoothing::Active()
-                ? Entities::PlayerEntity::Main() : nullptr;
-            const double ahead = Mods::Render::FrameTiming::StepPhase();
-            if (target == nullptr || !ProcessFrame()
-                || !target->ModPresentWatchedView(Mods::Network::NetSmoothing::AheadShift(target->SlotIndex(), ahead)))
+            // The watched player, at this picture's instant: a replica on the
+            // playout clock -- never past what has arrived, so nothing is
+            // guessed, and nothing held back either -- and a player simulated
+            // here (offline, or on the authority) carried on from its step.
+            const auto target = Mods::SpectatorMode::CanUsePlayerCamera() ? Entities::PlayerEntity::Main() : nullptr;
+            std::optional<OpenTK::Mathematics::Vector3> playout;
+            if (target != nullptr && Mods::Network::NetSmoothing::Active())
+            {
+                playout = Mods::Network::NetSmoothing::AheadShift(target->SlotIndex(), Mods::Render::FrameTiming::StepPhase());
+            }
+            if (target == nullptr || !ProcessFrame() || !target->ModPresentWatchedView(playout))
             {
                 return {};
             }
@@ -67,7 +70,12 @@ namespace MphRead
         }
         const auto main = Entities::PlayerEntity::Main();
         const auto aiming = ModFrameAimPlayer();
-        if (main == nullptr || !main->ModPresentOwnView(aiming != nullptr ? _mouseState : nullptr)) return {};
+        if (main == nullptr) return {};
+        if (!main->ModPresentDeathCamera(*_mouseState, *_keyboardState)
+            && !main->ModPresentOwnView(aiming != nullptr ? _mouseState : nullptr))
+        {
+            return {};
+        }
         return Mods::Input::FrameAimPresentation(main);
     }
 

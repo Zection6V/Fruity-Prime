@@ -1,6 +1,7 @@
 #include "Mods/Render/MotionCarry.hpp"
 #include "Formats/Types.hpp"
 
+#include <array>
 #include <cmath>
 #include <iostream>
 
@@ -84,6 +85,28 @@ int main()
             "a turn no step makes is not carried");
     }
 
+    // The move and the turn on fractions of their own: a ball rolled on its
+    // animation grid while it moves on at the picture's instant.
+    {
+        const Matrix4 previous = Pose(20, Vector3(1, 2, 3));
+        const Matrix4 current = Pose(30, Vector3(1.3F, 2, 2.8F));
+        const auto held = MotionCarry::BetweenShown(previous, current, 0.5F, -1.0F);
+        passed &= Check(held && Largest(current * *held, Pose(20, Vector3(1.45F, 2, 2.7F))) < 1e-4F,
+            "a turn held at the previous step's while the move carries on");
+        const auto still = MotionCarry::BetweenShown(previous, current, 0.0F, -1.0F);
+        passed &= Check(still && Largest(current * *still, Pose(20, Vector3(1.3F, 2, 2.8F))) < 1e-4F,
+            "at the step's own instant the previous turn is shown where the step is");
+        const auto half = MotionCarry::BetweenShown(previous, current, 0.75F, 0.5F);
+        passed &= Check(half && Largest(current * *half, Pose(35, Vector3(1.525F, 2, 2.65F))) < 1e-4F,
+            "a turn on a finer grid than the picture's instant");
+        passed &= Check(!MotionCarry::BetweenShown(previous, current, 0.0F, 0.0F),
+            "the step's own pose is no carry");
+        const auto same = MotionCarry::BetweenShown(previous, current, 0.5F, 0.5F);
+        const auto plain = MotionCarry::Between(previous, current, 0.5F);
+        passed &= Check(same && plain && Largest(*same, *plain) < 1e-6F,
+            "equal fractions are Between");
+    }
+
     // Toward a pose the game says comes next: part of the way there, never past.
     {
         const Matrix4 current = Pose(30, Vector3(1, 0, 0));
@@ -92,6 +115,37 @@ int main()
         passed &= Check(carry && Largest(current * *carry, Pose(32.5F, Vector3(1.05F, 0, 0.1F))) < 1e-4F,
             "a quarter of the way toward the next pose");
         passed &= Check(!MotionCarry::Toward(current, current, 0.5F), "toward the same pose is not a carry");
+    }
+
+    // A trailing camera against its body, over its last four steps.
+    {
+        using OpenTK::Mathematics::Multiply;
+        const auto near = [](Vector3 a, Vector3 b) { return (a - b).LengthSquared() < 1e-10F; };
+        const Vector3 v(0.15F, 0, -0.02F);
+        const Vector3 c(3, 1, 2);
+        const std::array<Vector3, 4> steady{c - Multiply(v, 3), c - Multiply(v, 2), c - v, c};
+        passed &= Check(near(MotionCarry::Trail(steady, 0.4F), c + Multiply(v, 0.4F)),
+            "a steady trail is carried on by its step");
+        passed &= Check(near(MotionCarry::Trail({c, c, c, c}, 0.7F), c), "a trail at rest stays");
+        // Up and down 0.124 a step while drifting by v: shown at the middle,
+        // moving on with the drift.
+        const Vector3 a(0, 0.062F, 0);
+        for (const int n : {10, 11, 12})
+        {
+            const auto at = [&](int k) { return Multiply(v, static_cast<float>(k)) + Multiply(a, k % 2 == 0 ? 1.0F : -1.0F); };
+            for (const float f : {0.0F, 0.5F, 0.99F})
+            {
+                passed &= Check(near(MotionCarry::Trail({at(n - 3), at(n - 2), at(n - 1), at(n)}, f),
+                    Multiply(v, static_cast<float>(n) + f)), "a swing every step is shown at its middle");
+            }
+        }
+        // Snapped in off a wall: 2.48 back to 0.98 in a step, never on past it.
+        const Vector3 back(0, 0, 1);
+        const std::array<Vector3, 4> snap{Multiply(back, 2.49F), Multiply(back, 2.48F), Multiply(back, 2.48F), Multiply(back, 0.98F)};
+        passed &= Check(near(MotionCarry::Trail(snap, 0.9F), Multiply(back, 0.98F)), "a snap is not carried on");
+        // Easing out after it: on by the smaller of its last two steps.
+        const std::array<Vector3, 4> easing{Multiply(back, 0.98F), Multiply(back, 1.12F), Multiply(back, 1.26F), Multiply(back, 1.40F)};
+        passed &= Check(near(MotionCarry::Trail(easing, 0.5F), Multiply(back, 1.47F)), "easing out is carried on");
     }
 
     // A beam drawn out of a gun stays on the gun: its origin onto the muzzle,

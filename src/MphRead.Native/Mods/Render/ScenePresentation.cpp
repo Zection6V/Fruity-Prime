@@ -99,6 +99,11 @@ namespace MphRead::Mods::Render
         return advanced && Phase() > 0.0;
     }
 
+    float ScenePresentation::ShownPhase() noexcept
+    {
+        return Moving() ? static_cast<float>(Phase()) : 0.0F;
+    }
+
     std::optional<Matrix4> ScenePresentation::EntityCarry(const Entities::EntityBase& entity)
     {
         if (!Moving()) return std::nullopt;

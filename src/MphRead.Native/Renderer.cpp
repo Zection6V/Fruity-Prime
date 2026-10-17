@@ -67,6 +67,7 @@
 #include "Mods/Input/PointerInput.hpp"
 #include "Mods/Input/StylusZone.hpp"
 #include "Mods/Input/WeaponWheel.hpp"
+#include "Mods/Network/Bots/NetBotInput.hpp"
 #include "Mods/Network/Replay/DemoClip.hpp"
 #include "Mods/Network/Replay/DemoPlayback.hpp"
 #include "Mods/Network/Replay/DemoRecorder.hpp"
@@ -1841,7 +1842,8 @@ namespace MphRead
             {
                 _elapsedTime += _frameTime;
             }
-            if (_inputMode == InputMode::CameraOnly || Mods::Chat::ChatBox::Composing())
+            if ((_inputMode == InputMode::CameraOnly || Mods::Chat::ChatBox::Composing())
+                && Mods::Network::NetBotInput::KeepsHumanInputClear(*Entities::PlayerEntity::Main()))
             {
                 Entities::PlayerEntity::Main()->Controls().ClearAll();
             }

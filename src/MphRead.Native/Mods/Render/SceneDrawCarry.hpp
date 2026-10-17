@@ -4,6 +4,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <optional>
 
 // The scene's side of drawing the world at the picture's instant
 // (Mods/Render/ScenePresentation): what an entity drew, carried on.
@@ -20,4 +22,9 @@ public:                                                                         
     void ModCarryEntityDrawn(const ModDrawMark& from, const ::MphRead::Entities::EntityBase& entity); \
     void ModCarryPlayerDrawn(const ModDrawMark& from, const ::MphRead::Entities::PlayerEntity& player); \
 private:                                                                                       \
-    void ModCarryDrawn(const ModDrawMark& from, const ::OpenTK::Mathematics::Matrix4& carry);
+    void ModCarryDrawn(const ModDrawMark& from, const ::OpenTK::Mathematics::Matrix4& carry); \
+    /* Each item's matrices by the carry `itemCarry` gives each (none: the item is left as  */  \
+    /* drawn), single particles by `carry`.                                                 */  \
+    void ModCarryDrawn(const ModDrawMark& from, const ::OpenTK::Mathematics::Matrix4& carry,  \
+        const std::function<std::optional<::OpenTK::Mathematics::Matrix4>(const ::MphRead::RenderItem&, \
+            const ::OpenTK::Mathematics::Matrix4& drawn)>& itemCarry);

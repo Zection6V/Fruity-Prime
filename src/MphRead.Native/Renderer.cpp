@@ -1946,7 +1946,7 @@ namespace MphRead
         // Mod hook: the poses this step left, to draw on from (Mods/Render/ScenePresentation).
         if (ProcessFrame() && !GameState::MenuPause() && !GameState::DialogPause())
         {
-            Mods::Render::ScenePresentation::EndStep(*this);
+            Mods::Render::ScenePresentation::EndStep(*this, GameState::MatchState() == MatchState::InProgress);
         }
         _pendingEffectSteps = std::min(_pendingEffectSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);
         _pendingFadeSteps = std::min(_pendingFadeSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);

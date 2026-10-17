@@ -39,7 +39,12 @@ namespace MphRead::Mods::Render
         static void BeginStep() noexcept;
         // Hook: the end of a step that ran the world. Every entity's pose,
         // as the step left it, against the one before.
-        static void EndStep(Scene& scene);
+        // `world`: the step ran the world. One that did not (the results
+        // screen, which stops it) moved nothing a picture could carry on,
+        // though the camera may still fly.
+        static void EndStep(Scene& scene, bool world = true);
+        // The last step ran the world.
+        [[nodiscard]] static bool WorldAdvanced() noexcept;
         // Hook: Scene::AddEntity. A new life -- a pooled shot reused
         // included -- has no motion behind it.
         static void NoteAdded(const Entities::EntityBase& entity);

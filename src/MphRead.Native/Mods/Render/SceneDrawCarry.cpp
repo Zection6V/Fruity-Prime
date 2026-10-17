@@ -92,11 +92,17 @@ namespace MphRead
         const OpenTK::Mathematics::Vector3 moved = Mods::Render::MotionCarry::Point(at, *carry) - at;
         const OpenTK::Mathematics::Matrix4 across = OpenTK::Mathematics::CreateTranslation(
             OpenTK::Mathematics::Vector3(moved.X, 0.0F, moved.Z));
+        //  - Spire's Dialanche rocks circle the ball by its position alone
+        //    (DrawSpireAltAttack), so while they are out everything it draws
+        //    moves with the ball and does not turn with its roll.
+        const bool rocks = player.Hunter() == Hunter::Spire
+            && TypeExtensions::TestFlag(player.Flags2(), Entities::PlayerFlags2::AltAttack);
+        const OpenTK::Mathematics::Matrix4 along = OpenTK::Mathematics::CreateTranslation(moved);
         ModCarryDrawn(from, *carry, [&](const ::MphRead::RenderItem& item) -> std::optional<OpenTK::Mathematics::Matrix4>
         {
             if (item.Type == RenderItemType::TrailStack) return std::nullopt;
             if (item.Type == RenderItemType::Particle) return across;
-            return *carry;
+            return rocks ? along : *carry;
         });
     }
 }

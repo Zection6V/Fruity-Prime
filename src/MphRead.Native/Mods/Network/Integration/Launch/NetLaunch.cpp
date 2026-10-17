@@ -367,6 +367,18 @@ namespace MphRead::Mods::Network
             GameState::AffinityWeapons(match->AffinityWeapons);
             GameState::ShadowFreeze(match->ShadowFreeze);
         }
+        else if (const std::optional<MatchStatePacket> state = NetSession::ServerMatch())
+        {
+            // Continuous servers and older session handshakes may supply
+            // match-state flags before their full session definition arrives.
+            GameState::Instagib(state->Instagib());
+            GameState::FriendlyFire(state->FriendlyFire());
+            GameState::ShadowFreeze(state->ShadowFreeze());
+            if (state->StatesRules())
+            {
+                GameState::AffinityWeapons(state->AffinityWeapons());
+            }
+        }
     }
 
     void NetLaunch::BuildPlayers(Scene& scene, Hunter localHunter,

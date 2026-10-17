@@ -3,6 +3,7 @@
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <array>
+#include <functional>
 #include <optional>
 
 namespace MphRead
@@ -82,6 +83,9 @@ namespace MphRead::Mods::Render
         // its transform otherwise -- every kind of item is drawn through one
         // of the two. A billboard keeps facing the camera and only moves.
         static void Apply(RenderItem& item, const OpenTK::Mathematics::Matrix4& carry);
+        // Each of the item's matrices by the carry `carryFor` gives that matrix.
+        static void Apply(RenderItem& item,
+            const std::function<const OpenTK::Mathematics::Matrix4&(const OpenTK::Mathematics::Matrix4& drawn)>& carryFor);
         [[nodiscard]] static OpenTK::Mathematics::Vector3 Point(
             OpenTK::Mathematics::Vector3 point, const OpenTK::Mathematics::Matrix4& carry) noexcept;
 

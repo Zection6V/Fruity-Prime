@@ -5,6 +5,8 @@
 #include "MotionCarry.hpp"
 #include "ScenePresentation.hpp"
 
+#include <cmath>
+
 namespace MphRead
 {
     Scene::ModDrawMark Scene::ModMarkDrawn() const noexcept
@@ -14,19 +16,29 @@ namespace MphRead
 
     void Scene::ModCarryDrawn(const ModDrawMark& from, const OpenTK::Mathematics::Matrix4& carry)
     {
-        ModCarryDrawn(from, carry, [&carry](const ::MphRead::RenderItem&) { return std::optional(carry); });
+        ModCarryDrawn(from, carry, [&carry](const ::MphRead::RenderItem&, const OpenTK::Mathematics::Matrix4&)
+        {
+            return std::optional(carry);
+        });
     }
 
     void Scene::ModCarryDrawn(const ModDrawMark& from, const OpenTK::Mathematics::Matrix4& carry,
-        const std::function<std::optional<OpenTK::Mathematics::Matrix4>(const ::MphRead::RenderItem&)>& itemCarry)
+        const std::function<std::optional<OpenTK::Mathematics::Matrix4>(const ::MphRead::RenderItem&,
+            const OpenTK::Mathematics::Matrix4& drawn)>& itemCarry)
     {
         std::size_t carried = 0;
         for (std::size_t i = from.Items; i < _usedRenderItems.size(); ++i)
         {
             if (_usedRenderItems[i] == nullptr) continue;
-            const auto itemMotion = itemCarry(*_usedRenderItems[i]);
-            if (!itemMotion) continue;
-            Mods::Render::MotionCarry::Apply(*_usedRenderItems[i], *itemMotion);
+            ::MphRead::RenderItem& item = *_usedRenderItems[i];
+            if (!itemCarry(item, item.Transform)) continue;
+            OpenTK::Mathematics::Matrix4 motion{};
+            Mods::Render::MotionCarry::Apply(item, [&](const OpenTK::Mathematics::Matrix4& drawn)
+                -> const OpenTK::Mathematics::Matrix4&
+            {
+                motion = itemCarry(item, drawn).value_or(carry);
+                return motion;
+            });
             ++carried;
         }
         for (std::int32_t i = from.Singles; i < _singleParticleCount; ++i)
@@ -92,10 +104,32 @@ namespace MphRead
         const OpenTK::Mathematics::Vector3 moved = Mods::Render::MotionCarry::Point(at, *carry) - at;
         const OpenTK::Mathematics::Matrix4 across = OpenTK::Mathematics::CreateTranslation(
             OpenTK::Mathematics::Vector3(moved.X, 0.0F, moved.Z));
-        ModCarryDrawn(from, *carry, [&](const ::MphRead::RenderItem& item) -> std::optional<OpenTK::Mathematics::Matrix4>
+        //  - Spire's Dialanche: the ball's node is placed by its pose, roll
+        //    and all (DrawSpireAltAttack), but the rocks circle it by its
+        //    position alone, turned by the attack's own facing -- so the
+        //    ball's node is carried with its roll and the rocks with the
+        //    ball's move. Swung with the roll, they flew about the ball.
+        const bool dialanche = player.Hunter() == Hunter::Spire
+            && TypeExtensions::TestFlag(player.Flags2(), Entities::PlayerFlags2::AltAttack);
+        const OpenTK::Mathematics::Matrix4 pose = player.ModStepPose();
+        const OpenTK::Mathematics::Matrix4 along = OpenTK::Mathematics::CreateTranslation(moved);
+        const auto isBall = [&pose](const OpenTK::Mathematics::Matrix4& drawn)
+        {
+            constexpr float Close = 1e-4F;
+            const float* a = &drawn.M11;
+            const float* b = &pose.M11;
+            for (const int k : {0, 1, 2, 4, 5, 6, 8, 9, 10})
+            {
+                if (std::abs(a[k] - b[k]) > Close) return false;
+            }
+            return true;
+        };
+        ModCarryDrawn(from, *carry, [&](const ::MphRead::RenderItem& item, const OpenTK::Mathematics::Matrix4& drawn)
+            -> std::optional<OpenTK::Mathematics::Matrix4>
         {
             if (item.Type == RenderItemType::TrailStack) return std::nullopt;
             if (item.Type == RenderItemType::Particle) return across;
+            if (dialanche && item.MatrixStackCount > 0 && !isBall(drawn)) return along;
             return *carry;
         });
     }

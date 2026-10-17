@@ -201,9 +201,15 @@ namespace MphRead::Mods::Render
 
     void MotionCarry::Apply(RenderItem& item, const Matrix4& carry)
     {
+        Apply(item, [&carry](const Matrix4&) -> const Matrix4& { return carry; });
+    }
+
+    void MotionCarry::Apply(RenderItem& item, const std::function<const Matrix4&(const Matrix4& drawn)>& carryFor)
+    {
         const bool billboard = item.BillboardMode != BillboardMode::None;
         const auto move = [&](Matrix4& matrix)
         {
+            const Matrix4& carry = carryFor(matrix);
             if (billboard)
             {
                 const Vector3 at = Point(Vector3(matrix.M41, matrix.M42, matrix.M43), carry);

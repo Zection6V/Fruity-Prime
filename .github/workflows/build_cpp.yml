@@ -892,26 +892,7 @@ jobs:
         run: |
           set -euo pipefail
           cmake --build build/native --config RelWithDebInfo --target fruity_raw_mouse_motion_tests fruity_native_touch_state_tests fruity_native_aim_rules_tests fruity_dialanche_native_collision_tests fruity_weavel_alt_form_parity_tests fruity_intent_touch_payload_tests fruity_demo_frame_clock_tests fruity_demo_own_intent_tests fruity_spectator_policy_tests fruity_shot_ray_validation_tests
-          ctest --test-dir build/native -C RelWithDebInfo -R '^FruityPrime\.(RawMouseMotion|NativeTouchState|NativeAimRules|DialancheNativeCollision|WeavelAltFormParity|IntentTouchPayload|DemoFrameClock|DemoOwnIntent|SpectatorPolicies|ShotRayValidation)
-
-      - name: Archive installed Qt application
-        shell: bash
-        run: tar -C build/native/dist -czf build/native/FruityPrime-macos.tar.gz .
-
-      - name: Upload macOS build
-        uses: actions/upload-artifact@v7
-        with:
-          name: FruityPrime-cpp-macos-${{ github.run_number }}
-          if-no-files-found: error
-          path: build/native/FruityPrime-macos.tar.gz
-
-  android:
-    uses: ./.github/workflows/native-cpp-android.yml
-    secrets: inherit
-    with:
-      checkout_ref: ${{ inputs.checkout_ref }}
-      release_version: ${{ inputs.release_version }}
- --output-on-failure --no-tests=error
+          ctest --test-dir build/native -C RelWithDebInfo -R '^FruityPrime\.(RawMouseMotion|NativeTouchState|NativeAimRules|DialancheNativeCollision|WeavelAltFormParity|IntentTouchPayload|DemoFrameClock|DemoOwnIntent|SpectatorPolicies|ShotRayValidation)$' --output-on-failure --no-tests=error
 
       - name: Archive installed Qt application
         shell: bash

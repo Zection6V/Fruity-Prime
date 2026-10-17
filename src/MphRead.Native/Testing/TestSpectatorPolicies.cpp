@@ -122,6 +122,11 @@ int main()
         && !PlayerCombatPolicy::IsAliveAndSpawned(true, true, 0),
         "a rejoin request requires an active spawned player with health");
 
+    passed &= Check(SpectatorCameraPolicy::RetryPlaybackFollow(true, true, false)
+        && !SpectatorCameraPolicy::RetryPlaybackFollow(true, true, true)
+        && !SpectatorCameraPolicy::RetryPlaybackFollow(true, false, false)
+        && !SpectatorCameraPolicy::RetryPlaybackFollow(false, true, false),
+        "a demo retries its initial first-person target only until selected or manually cancelled");
     passed &= Check(!SpectatorCameraPolicy::CanFollowPlayer(true, true, false, false)
         && !SpectatorCameraPolicy::CanFollowPlayer(true, true, true, false)
         && SpectatorCameraPolicy::CanFollowPlayer(true, true, true, true)

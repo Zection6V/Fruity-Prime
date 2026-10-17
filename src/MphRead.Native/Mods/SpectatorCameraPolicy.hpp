@@ -7,6 +7,12 @@ namespace MphRead::Mods
     public:
         SpectatorCameraPolicy() = delete;
 
+        [[nodiscard]] static constexpr bool RetryPlaybackFollow(
+            bool playback, bool pending, bool hasTarget) noexcept
+        {
+            return playback && pending && !hasTarget;
+        }
+
         [[nodiscard]] static constexpr bool CanFollowPlayer(bool spectating,
             bool hasMainPlayer, bool hasTarget, bool targetIsCurrent) noexcept
         {
